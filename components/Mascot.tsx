@@ -19,7 +19,11 @@ export interface MascotHandle {
 
 interface ArcElement extends HTMLElement {
   play(name: string): Promise<void>;
+  set(name: string): ArcElement;
 }
+
+// These hold until something else plays. Everything else is a one-shot that returns to the resting state.
+const LOOPING: MascotReaction[] = ["idle", "thinking", "sleep"];
 
 declare module "react" {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -59,7 +63,12 @@ export default function Mascot({ ref, size = 96 }: { ref?: Ref<MascotHandle>; si
   useImperativeHandle(ref, () => ({
     async play(name) {
       await ready.current;
-      await el.current?.play?.(name);
+      const arc = el.current;
+      if (!arc?.play) return;
+      // One-shots go back to the resting state when done. Make that idle,
+      // otherwise they would fall back to an earlier "thinking" or "sleep".
+      if (!LOOPING.includes(name)) arc.set("idle");
+      await arc.play(name);
     },
   }));
 

@@ -1,0 +1,4 @@
+SOURCE URL: https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf
+PAGE: 160
+
+III.E.50 Transmission Facilities for the Wabasso Solar Energy Center in Indian River County The work required to connect the approximate 74.5 MW (nameplate, AC) Wabasso Solar Energy Center in Indian River County in the 1st Quarter of 2028 is projected to be: I. Substation: 1. Extend 230 kV bus at Finca substation to a new Finance substation and interconnect the 230/34.5kV transformer through a 230kV breaker. 2. Construct 34.5 kV bus to connect the PV array to Finance 230 kV Substation. 3. Add relays and other protective equipment. 4. Breaker replacements: None II. Transmission: 1. Construct approximately 4.5 miles string bus from Finca 230 kV to Finance substation. 2. No additional upgrades are expected to be necessary at this time. Florida Power & Light Company 146

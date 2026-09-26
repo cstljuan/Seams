@@ -1,0 +1,4 @@
+SOURCE URL: https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf
+PAGE: 192
+
+III.E.82 Transmission Facilities for the Limpkin Solar Energy Center in Collier County The work required to connect the approximate 74.5 MW (nameplate, AC) Limpkin Solar Energy Center in Collier County in the 1st Quarter of 2029 is projected to be: I. Substation: 1. Extend 500 kV bus at Boardwalk substation and interconnect the 500/34.5kV transformer through a 500kV breaker. 2. Construct 34.5 kV bus to connect the PV array to Boardwalk 500 kV Substation. 3. Add relays and other protective equipment. 4. Breaker replacements: None II. Transmission: 1. No additional upgrades are expected to be necessary at this time. Florida Power & Light Company 178

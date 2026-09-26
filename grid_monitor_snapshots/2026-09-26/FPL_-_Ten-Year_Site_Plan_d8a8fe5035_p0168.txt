@@ -1,0 +1,4 @@
+SOURCE URL: https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf
+PAGE: 168
+
+III.E.58 Transmission Facilities for the Wild Lime Solar Energy Center in St. Lucie County The work required to connect the approximate 74.5 MW (nameplate, AC) Wild Lime Solar Energy Center in St. Lucie County in the 3rd Quarter of 2028 is projected to be: I. Substation: 1. Extend 230 kV bus at Lily substation and interconnect the 230/34.5kV transformer through a 230kV breaker. 2. Construct 34.5 kV bus to connect the PV array to Lily 230 kV Substation. 3. Add relays and other protective equipment. 4. Breaker replacements: None II. Transmission: 1. No additional transmission work is required. 2. No upgrades are expected to be necessary at this time. Florida Power & Light Company 154

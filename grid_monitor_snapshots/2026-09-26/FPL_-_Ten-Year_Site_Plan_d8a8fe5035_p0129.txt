@@ -1,0 +1,4 @@
+SOURCE URL: https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf
+PAGE: 129
+
+III.E.19 Transmission Facilities for the Tangelo Solar Energy Center in Okeechobee County The work required to connect the approximate 74.5 MW (nameplate, AC) Tangelo Solar Energy Center in Okeechobee County in the 1st Quarter of 2027 is projected to be: I.Substation: 1. Extend 230 kV bus at Clementine substation and interconnect the 230/34.5kV transformer through a 230kV breaker. 2. Construct 34.5 kV bus to connect the PV array to Clementine 230 kV Substation. 3. Add relays and other protective equipment. 4. Breaker replacements: None II.Transmission: 1. No additional upgrades are expected to be necessary at this time. Florida Power & Light Company 115

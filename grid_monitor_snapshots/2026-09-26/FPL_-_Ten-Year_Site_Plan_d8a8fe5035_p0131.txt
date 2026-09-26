@@ -1,0 +1,4 @@
+SOURCE URL: https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf
+PAGE: 131
+
+III.E.21 Transmission Facilities for the Hendry Solar Energy Center in Hendry County The work required to connect the approximate 74.5 MW (nameplate, AC) Hendry Solar Energy Center in Hendry County in the 1st Quarter of 2027 is projected to be: I.Substation: 1. Extend 500 kV bus at Ghost substation and interconnect the 500/34.5kV transformer through a 500kV breaker. 2. Construct 34.5 kV bus to connect the PV array to Ghost 500 kV Substation. 3. Add relays and other protective equipment. 4. Breaker replacements: None II.Transmission: 1. No additional upgrades are expected to be necessary at this time. Florida Power & Light Company 117

@@ -1,38 +1,34 @@
 #!/usr/bin/env python3
 """
-florida_grid_monitor.py
+Florida Grid Plan Monitor v7.1
 
-Weekly monitor for public Florida planning_company / regulator websites that may publish
-future electric transmission-line and substation projects.
+Weekly public-data monitor for future Florida transmission-line and substation
+projects. This version is deliberately conservative: source-specific parsers
+run before generic prose extraction; low-confidence candidates are quarantined;
+and GIS enrichment happens only after a record passes validation.
 
-The script:
-1. Crawls a GIS-prioritized set of public Florida sources.
-2. Extracts text from HTML and PDF documents.
-3. Locates text blocks likely to describe future transmission/substation work.
-4. Heuristically extracts:
-   - planning_company/company
-   - project name
-   - starting substation
-   - ending substation
-   - voltage
-   - approximate line mileage
-   - counties crossed
-   - regulatory case / docket number
-   - filing dates
-   - project type
-   - projected year
-   - cost
-   - construction duration (if stated)
-   - GIS geometry when a reliable public GIS match is available
-   - a GIS-derived centroid (or address-geocoded centroid as fallback)
-   - street address, when the source text includes one
-   - projected locations
-5. Merges results into a CSV while retaining first_seen / last_seen timestamps.
-6. Can run once or continuously every 7 days.
+Main improvements over earlier versions:
+- Page-preserving PDF extraction (pdfplumber first, pypdf fallback).
+- Dedicated FPL Schedule 10 parser for structured proposed-transmission records.
+- Dedicated Florida DEP project-page path plus strict generic fallback.
+- Explicit non-project filters for news, FAQ, vegetation, reliability criteria,
+  hurricane/storm-preparedness, and other common false positives.
+- Strict substation-name cleaning.
+- Project-confidence scoring and a review/quarantine CSV.
+- GIS matching weighted by station name, county, voltage, and utility/owner when
+  available; weak matches are rejected.
+- Address validation before Census geocoding.
+- Stable project IDs based on project identity rather than surrounding prose.
+- Eight-level spatial enrichment hierarchy: official GIS, planned/existing facilities,
+  spatial-first named transmission-line matching, inferred connection points, official maps,
+  address, then Census city/county centroid fallback.
+- OpenStreetMap/Overpass fallback for substations and transmission lines when HIFLD is incomplete.
+- Duplicate endpoint guards and administrative/contact-address rejection.
+- Spatial-role labeling prevents low-confidence centroid fallbacks from being mistaken
+  for official/project GIS geometry.
 
-This is intended as a transparent hackathon/data-science collector, not a
-production regulatory-data service. Always validate high-value rows against
-their source URL/source excerpt.
+This is a research/hackathon collector, not an engineering-grade asset registry.
+Always retain and review source_url/source_excerpt before making decisions.
 """
 
 from __future__ import annotations
@@ -43,9 +39,12 @@ import hashlib
 import io
 import json
 import logging
+import math
 import re
 import time
-from dataclasses import dataclass, asdict
+import zipfile
+import xml.etree.ElementTree as ET
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -55,20 +54,27 @@ import requests
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
 
+try:
+    import pdfplumber
+except ImportError:  # graceful fallback; requirements.txt installs it by default
+    pdfplumber = None
+
+
 USER_AGENT = (
-    "FloridaGridPlanMonitor/4.0 "
+    "FloridaGridPlanMonitor/7.1 "
     "(public-data research; weekly low-rate crawler)"
 )
-
 DEFAULT_OUTPUT = Path("florida_future_grid_projects.csv")
+DEFAULT_REVIEW_OUTPUT = Path("florida_grid_projects_review.csv")
 DEFAULT_SNAPSHOT_DIR = Path("grid_monitor_snapshots")
-
 REQUEST_TIMEOUT = 30
 RATE_LIMIT_SECONDS = 1.25
 WEEK_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_MIN_CONFIDENCE = 0.52
+GIS_MATCH_THRESHOLD = 0.60
+MISSING_TEXT = "NA"
 
-# Public GIS/geocoding enrichment services. These are used only to enrich
-# projects discovered from the planning/regulatory sources below.
+# Public GIS/geocoding enrichment services.
 HIFLD_SUBSTATIONS_QUERY_URL = (
     "https://services1.arcgis.com/CD5mKowwN6nIaqd8/ArcGIS/rest/services/"
     "project_renewable_us_substations_2022/FeatureServer/10/query"
@@ -77,126 +83,138 @@ HIFLD_SUBSTATIONS_LAYER_URL = (
     "https://services1.arcgis.com/CD5mKowwN6nIaqd8/ArcGIS/rest/services/"
     "project_renewable_us_substations_2022/FeatureServer/10"
 )
-HIFLD_TRANSMISSION_LAYER_URL = (
+HIFLD_TRANSMISSION_LINES_QUERY_URL = (
+    "https://services1.arcgis.com/Hp6G80Pky0om7QvQ/arcgis/rest/services/"
+    "Transmission_Lines/FeatureServer/0/query"
+)
+HIFLD_TRANSMISSION_LINES_LAYER_URL = (
     "https://services1.arcgis.com/Hp6G80Pky0om7QvQ/arcgis/rest/services/"
     "Transmission_Lines/FeatureServer/0"
 )
 CENSUS_GEOCODER_URL = (
     "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
 )
-GIS_MATCH_THRESHOLD = 0.58
-
-FUTURE_KEYWORDS = re.compile(
-    r"\b("
-    r"planned|proposed|future|projected|expected|scheduled|"
-    r"construction|construct|upgrade|expansion|new|replace|rebuild|"
-    r"in[- ]service|completion|complete|need date|forecast|application|petition"
-    r")\b",
-    re.I,
+TIGER_COUNTY_QUERY_URL = (
+    "https://tigerweb.geo.census.gov/arcgis/rest/services/"
+    "TIGERweb/State_County/MapServer/1/query"
+)
+TIGER_PLACE_QUERY_URL = (
+    "https://tigerweb.geo.census.gov/arcgis/rest/services/"
+    "TIGERweb/Places_CouSub_ConCity_SubMCD/MapServer/4/query"
 )
 
-GRID_KEYWORDS = re.compile(
-    r"\b("
-    r"transmission|substation|switchyard|switching station|"
-    r"\d{2,3}\s*kv|kilovolt|power line|interconnection|"
-    r"reconductoring|transformer"
-    r")\b",
-    re.I,
-)
+OVERPASS_API_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
+OSM_SOURCE_LABEL = "OpenStreetMap via Overpass API"
+FLORIDA_BBOX = (24.3963, -87.6349, 31.0009, -79.9743)  # south, west, north, east
 
-LINK_KEYWORDS = re.compile(
-    r"(transmission|substation|site.?plan|ten.?year|grid|project|"
-    r"capital|budget|planning|reliability|siting|electric|"
-    r"agenda|filing|docket|case|petition|application|order.?1000|btpp)",
-    re.I,
-)
-
-PDF_RE = re.compile(r"\.pdf(?:$|\?)", re.I)
+# Location-enrichment caches keep weekly runs polite and fast.
+_SUBSTATION_CACHE: dict[tuple, dict | None] = {}
+_LINE_CACHE: dict[tuple, dict | None] = {}
+_LINK_DISCOVERY_CACHE: dict[str, tuple[list[str], list[str]]] = {}
+_TIGER_CACHE: dict[tuple[str, str], tuple[float, float] | None] = {}
+_OSM_STATION_CACHE: dict[tuple, dict | None] = {}
+_OSM_LINE_CACHE: dict[tuple, dict | None] = {}
+_OSM_UTILITY_SUBSTATIONS: dict[str, list[dict]] = {}
 
 SOURCES = [
-    # GIS-forward / strong location sources first. `gis_priority` controls crawl order.
     {
         "name": "Florida DEP - Siting Coordination Office",
         "company_hint": "Multiple Florida Utilities",
-        "url": "https://floridadep.gov/program-content/water/siting-coordination-office",
-        "max_pages": 18,
+        "url": "https://floridadep.gov/taxonomy/term/454",
+        "max_pages": 22,
         "gis_priority": 100,
+        "parser": "dep",
         "gis_reference": "Florida DEP GIS / transmission siting records",
     },
     {
         "name": "Florida PSC - Ten-Year Site Plans",
         "company_hint": "Multiple Florida Utilities",
-        "url": "https://www.psc.state.fl.us/ten-year-site-plans",
-        "max_pages": 12,
-        "gis_priority": 90,
-        "gis_reference": "Florida PSC service-territory mapping and filings",
-    },
-    {
-        "name": "FPL - Transmission Projects",
-        "company_hint": "Florida Power & Light",
-        "url": "https://www.fpl.com/reliability/andytown-oasis-project.html",
-        "max_pages": 8,
-        "gis_priority": 85,
-        "gis_reference": "FPL project maps / corridor records",
+        "url": "https://www.psc.state.fl.us/electric",
+        "max_pages": 15,
+        "gis_priority": 95,
+        "parser": "generic",
+        "gis_reference": "Florida PSC filings / service-territory GIS",
     },
     {
         "name": "FPL - Ten-Year Site Plan",
         "company_hint": "Florida Power & Light",
         "url": "https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf",
         "max_pages": 1,
-        "gis_priority": 80,
-        "gis_reference": "FPL bulk transmission-system maps",
+        "gis_priority": 90,
+        "parser": "fpl_schedule10",
+        "gis_reference": "FPL Schedule 10 + HIFLD/Florida GIS enrichment",
+    },
+    {
+        "name": "FPL - Transmission Projects",
+        "company_hint": "Florida Power & Light",
+        "url": "https://www.fpl.com/reliability/andytown-oasis-project.html",
+        "max_pages": 10,
+        "gis_priority": 85,
+        "parser": "generic",
+        "gis_reference": "FPL project maps / corridor records",
     },
     {
         "name": "JEA - Capital / Transmission Projects",
         "company_hint": "JEA",
-        "url": "https://www.jea.com/About/Procurement/Current_Bid_Openings/",
-        "max_pages": 10,
+        "url": "https://ebill.jea.com/construction/",
+        "seed_urls": [
+            "https://ebill.jea.com/construction/",
+            "https://ebill.jea.com/about/procurement/bid_results/",
+        ],
+        "max_pages": 18,
         "gis_priority": 75,
-        "gis_reference": "JEA project-area maps and named substations",
+        "parser": "generic",
+        "gis_reference": "JEA project maps and named substations",
     },
     {
         "name": "Gainesville Regional Utilities - Public Meetings",
         "company_hint": "Gainesville Regional Utilities",
         "url": "https://www.gru.com/OurCompany/GRUAuthority.aspx",
-        "max_pages": 10,
+        "max_pages": 12,
         "gis_priority": 70,
+        "parser": "generic",
         "gis_reference": "GRU system/project maps",
     },
     {
         "name": "Tampa Electric - Current Grid Projects",
         "company_hint": "Tampa Electric",
         "url": "https://www.tampaelectric.com/company/ourpowersystem/projects/",
-        "max_pages": 10,
-        "gis_priority": 60,
-        "gis_reference": "TECO project maps / regulatory maps when available",
+        "max_pages": 12,
+        "gis_priority": 65,
+        "parser": "generic",
+        "gis_reference": "TECO project/regulatory maps",
     },
     {
         "name": "Duke Energy Florida - News / Grid",
         "company_hint": "Duke Energy Florida",
         "url": "https://news.duke-energy.com/releases?c=23893",
-        "max_pages": 10,
-        "gis_priority": 55,
-        "gis_reference": "Duke project maps / DEP siting records when available",
+        "max_pages": 12,
+        "gis_priority": 60,
+        "parser": "generic",
+        "gis_reference": "Duke project maps / DEP siting records",
     },
     {
         "name": "OUC - News / Infrastructure",
         "company_hint": "Orlando Utilities Commission",
-        "url": "https://www.ouc.com/about/news/",
-        "max_pages": 10,
-        "gis_priority": 50,
+        "url": "https://www.ouc.com/about/reliability/",
+        "max_pages": 12,
+        "gis_priority": 55,
+        "parser": "generic",
         "gis_reference": "OUC project maps when available",
     },
     {
         "name": "FRCC - Order 1000 / Regional Planning",
         "company_hint": "Multiple Florida Utilities",
         "url": "https://www.frcc.com/order1000/",
-        "max_pages": 12,
-        "gis_priority": 40,
+        "max_pages": 14,
+        "gis_priority": 45,
+        "parser": "generic",
         "gis_reference": "FRCC regional system maps",
     },
 ]
-
 
 COMPANY_PATTERNS = [
     (re.compile(r"\bFlorida Power\s*&\s*Light\b|\bFPL\b", re.I), "Florida Power & Light"),
@@ -207,46 +225,71 @@ COMPANY_PATTERNS = [
     (re.compile(r"\bGainesville Regional Utilities\b|\bGRU\b", re.I), "Gainesville Regional Utilities"),
     (re.compile(r"\bLakeland Electric\b", re.I), "Lakeland Electric"),
     (re.compile(r"\bFlorida Municipal Power Agency\b|\bFMPA\b", re.I), "Florida Municipal Power Agency"),
+    (re.compile(r"\bSeminole Electric Cooperative\b", re.I), "Seminole Electric Cooperative"),
 ]
 
-TYPE_PATTERNS = [
-    (re.compile(r"\b(new|construct(?:ion)?)\b.*\btransmission\b", re.I), "New transmission line"),
-    (re.compile(r"\btransmission\b.*\b(new|construct(?:ion)?)\b", re.I), "New transmission line"),
-    (re.compile(r"\b(rebuild|reconduct|uprate|upgrade|replace)\w*\b.*\btransmission\b", re.I), "Transmission upgrade"),
-    (re.compile(r"\b(new|construct(?:ion)?)\b.*\bsubstation\b", re.I), "New substation"),
-    (re.compile(r"\bsubstation\b.*\b(new|construct(?:ion)?)\b", re.I), "New substation"),
-    (re.compile(r"\b(upgrade|expand|replace|rebuild)\w*\b.*\bsubstation\b", re.I), "Substation upgrade"),
-    (re.compile(r"\bswitchyard\b|\bswitching station\b", re.I), "Switchyard / switching station"),
-    (re.compile(r"\btransmission\b", re.I), "Transmission project"),
-    (re.compile(r"\bsubstation\b", re.I), "Substation project"),
+FUTURE_KEYWORDS = re.compile(
+    r"\b(planned|proposed|future|projected|expected|scheduled|construction|construct|"
+    r"upgrade|expansion|new|replace|rebuild|in[- ]service|completion|complete|"
+    r"need date|forecast|application|petition|anticipated)\b",
+    re.I,
+)
+GRID_KEYWORDS = re.compile(
+    r"\b(transmission|substation|switchyard|switching station|\d{2,3}\s*kv|"
+    r"kilovolt|power line|interconnection|reconductoring|transformer|bus extension)\b",
+    re.I,
+)
+LINK_KEYWORDS = re.compile(
+    r"(transmission|substation|site.?plan|ten.?year|grid|project|capital|budget|"
+    r"planning|reliability|siting|electric|filing|docket|case|petition|application|"
+    r"order.?1000|btpp)",
+    re.I,
+)
+PDF_RE = re.compile(r"\.pdf(?:$|\?)", re.I)
+
+NON_PROJECT_PATTERNS = [
+    re.compile(p, re.I)
+    for p in [
+        r"frequently asked questions",
+        r"trees and power lines",
+        r"line clearing program",
+        r"hurricane season",
+        r"storm preparedness",
+        r"storm kit",
+        r"customer outreach specialist",
+        r"reliability criteria",
+        r"nerc reliability standards",
+        r"facility interconnection requirements",
+        r"vegetation request",
+        r"news releases?\s*\|",
+        r"community impact",
+        r"foundation awards",
+        r"outage alerts",
+        r"rate impact measure",
+    ]
 ]
 
-YEAR_RE = re.compile(r"\b(20(?:2[6-9]|3\d|4\d))\b")
+YEAR_RE = re.compile(r"\b(20(?:2[5-9]|3\d|4\d))\b")
 KV_RE = re.compile(r"\b(\d{2,3})\s*(?:kV|kilovolt)\b", re.I)
 MILES_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*(?:mile|miles|mi)\b", re.I)
-
+COUNTY_RE = re.compile(r"\b([A-Z][A-Za-z .'-]{1,35})\s+County\b")
 MONEY_RE = re.compile(
     r"(?P<currency>\$)\s*(?P<num>\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*"
     r"(?P<unit>billion|million|thousand|bn|m|k)?",
     re.I,
 )
-
-COUNTY_RE = re.compile(r"\b([A-Z][A-Za-z .'-]+)\s+County\b")
-
 CASE_PATTERNS = [
     re.compile(r"\bDocket\s*(?:No\.?|Number)?\s*[:#-]?\s*([A-Z0-9-]{4,})", re.I),
     re.compile(r"\bCase\s*(?:No\.?|Number)?\s*[:#-]?\s*([A-Z0-9-]{4,})", re.I),
     re.compile(r"\bPSC\s+Docket\s*[:#-]?\s*([A-Z0-9-]{4,})", re.I),
-    re.compile(r"\bSiting\s+Case\s*[:#-]?\s*([A-Z0-9-]{4,})", re.I),
+    re.compile(r"\b(?:DOAH|TA)\s*(?:No\.?|Case)?\s*[:#-]?\s*([A-Z0-9-]{4,})", re.I),
 ]
-
 DATE_PATTERNS = [
     re.compile(
         r"\b(?:filed|filing date|application date|petition date|submitted|submission date)"
-        r"\s*(?:on|:)?\s*"
-        r"((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-        r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-        r"\s+\d{1,2},?\s+\d{4})",
+        r"\s*(?:on|:)?\s*((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+        r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
+        r"Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})",
         re.I,
     ),
     re.compile(
@@ -255,53 +298,83 @@ DATE_PATTERNS = [
         re.I,
     ),
 ]
-
 DURATION_PATTERNS = [
     re.compile(r"\b(\d+(?:\.\d+)?)\s*(months?|mos?)\b", re.I),
     re.compile(r"\b(\d+(?:\.\d+)?)\s*(years?|yrs?)\b", re.I),
 ]
 
-SUBSTATION_PAIR_PATTERNS = [
-    re.compile(
-        r"\bfrom\s+(?:the\s+)?([A-Z][A-Za-z0-9 &'()./-]{2,60}?)\s+Substation"
-        r".{0,180}?\bto\s+(?:the\s+)?([A-Z][A-Za-z0-9 &'()./-]{2,60}?)\s+Substation",
-        re.I,
-    ),
-    re.compile(
-        r"\bbetween\s+(?:the\s+)?([A-Z][A-Za-z0-9 &'()./-]{2,60}?)\s+Substation"
-        r".{0,180}?\band\s+(?:the\s+)?([A-Z][A-Za-z0-9 &'()./-]{2,60}?)\s+Substation",
-        re.I,
-    ),
-    re.compile(
-        r"\b([A-Z][A-Za-z0-9 &'()./-]{2,60}?)\s*-\s*"
-        r"([A-Z][A-Za-z0-9 &'()./-]{2,60}?)\s+"
-        r"(?:500|230|161|138|115|69)\s*kV\b",
-        re.I,
-    ),
-]
+# Deliberately strict station capture. Generic 60-character free-form matches were
+# the main source of malformed endpoint names in earlier versions.
+STATION_TOKEN_RE = re.compile(
+    r"\b([A-Z][A-Za-z0-9&'().-]*(?:\s+[A-Z][A-Za-z0-9&'().-]*){0,5})\s+"
+    r"(?i:Substation|Switchyard|Switching Station)\b"
+)
+BAD_STATION_WORDS = {
+    "add", "breaker", "breakers", "construct", "construction", "connect", "connected",
+    "center", "transformer", "transmission", "approximately", "line", "lines", "terminal",
+    "array", "bus", "main", "step", "project", "existing", "new", "adjacent", "energy",
+    "solar", "battery", "system", "facility", "facilities", "none", "the",
+}
 
-SINGLE_SUBSTATION_RE = re.compile(
-    r"\b([A-Z][A-Za-z0-9 &'()./-]{2,60}?)\s+(?:Substation|Switchyard|Switching Station)\b",
+COORD_PAIR_RE = re.compile(
+    r"(?P<lat>[+-]?\d{1,2}\.\d{3,})\s*°?\s*(?P<lat_hemi>[NSns])?\s*[,/]\s*"
+    r"(?P<lon>[+-]?\d{1,3}\.\d{3,})\s*°?\s*(?P<lon_hemi>[EWew])?"
+)
+ADDRESS_RE = re.compile(
+    r"\b(\d{1,6}\s+(?:[A-Za-z0-9.'-]+\s+){0,6}"
+    r"(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|"
+    r"Highway|Hwy|Way|Court|Ct|Parkway|Pkwy|Trail|Trl|Circle|Cir|Terrace|Ter)\b"
+    r"(?:,?\s*[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})?"
+    r"(?:,?\s*(?:Florida|FL)\b)?(?:\s+\d{5}(?:-\d{4})?)?)",
     re.I,
 )
+BAD_ADDRESS_RE = re.compile(
+    r"\b(schedule|chapter|section|page|transmission facilities|voltage|kV|MVA|"
+    r"company|discussion item|status report)\b",
+    re.I,
+)
+ADMIN_ADDRESS_RE = re.compile(
+    r"\b3900\s+Commonwealth\s+(?:Boulevard|Blvd)\b|"
+    r"\bFlorida Department of Environmental Protection\b.{0,180}\bTallahassee\b|"
+    r"\bDEP\s+(?:headquarters|office)\b",
+    re.I,
+)
+COST_UNITS = {
+    "billion": 1_000_000_000,
+    "bn": 1_000_000_000,
+    "million": 1_000_000,
+    "m": 1_000_000,
+    "thousand": 1_000,
+    "k": 1_000,
+}
+
+
+@dataclass
+class SourceDocument:
+    url: str
+    text: str
+    page_number: int = 0
+    kind: str = "html"
 
 
 @dataclass
 class ProjectRecord:
     project_id: str
-
     planning_company: str
     project_name: str
     project_type: str
+    record_confidence: float
+    parser_type: str
+    review_reason: str
 
-    # Spatial fields. `gis` stores compact GeoJSON geometry. `centroid` stores
-    # one base coordinate as "latitude, longitude" without separate lat/lon columns.
     gis: str
     centroid: str
     address: str
     location_method: str
     gis_source: str
     location_confidence: str
+    spatial_role: str
+    location_evidence: str
 
     starting_substation: str
     ending_substation: str
@@ -318,83 +391,16 @@ class ProjectRecord:
 
     source_name: str
     source_url: str
+    source_page: int
     source_excerpt: str
-
     first_seen: str
     last_seen: str
     active: str = "yes"
 
 
 CSV_FIELDS = [f.name for f in ProjectRecord.__dataclass_fields__.values()]
-MISSING_TEXT = "NA"
 NUMERIC_FIELDS = {
-    "voltage_kv",
-    "approximate_line_mileage",
-    "projected_year",
-    "cost",
-}
-TEXT_FIELDS = {
-    "planning_company",
-    "project_name",
-    "project_type",
-    "gis",
-    "centroid",
-    "address",
-    "location_method",
-    "gis_source",
-    "location_confidence",
-    "starting_substation",
-    "ending_substation",
-    "counties_crossed",
-    "regulatory_case_number",
-    "filing_dates",
-    "construction_time",
-    "projected_locations",
-    "source_name",
-    "source_url",
-    "source_excerpt",
-}
-
-
-# Decimal degrees with a separator, optional hemisphere letters.
-COORD_PAIR_RE = re.compile(
-    r"(?P<lat>[+-]?\d{1,2}\.\d{3,})\s*°?\s*(?P<lat_hemi>[NSns])?"
-    r"\s*[,/]\s*"
-    r"(?P<lon>[+-]?\d{1,3}\.\d{3,})\s*°?\s*(?P<lon_hemi>[EWew])?"
-)
-COORD_HEMI_RE = re.compile(
-    r"(?P<lat>\d{1,2}\.\d{3,})\s*°?\s*(?P<lat_hemi>[NSns])\s*[, ]+\s*"
-    r"(?P<lon>\d{1,3}\.\d{3,})\s*°?\s*(?P<lon_hemi>[EWew])"
-)
-LAT_LABEL_RE = re.compile(
-    r"\b(?:lat(?:itude)?)\s*[:=]?\s*([+-]?\d{1,2}\.\d{3,})\s*°?\s*([NSns])?",
-    re.I,
-)
-LON_LABEL_RE = re.compile(
-    r"\b(?:lon(?:gitude)?)\s*[:=]?\s*([+-]?\d{1,3}\.\d{3,})\s*°?\s*([EWew])?",
-    re.I,
-)
-DMS_RE = re.compile(
-    r"(?P<deg>\d{1,3})\s*°\s*(?P<min>\d{1,2})\s*[′']\s*"
-    r"(?P<sec>\d{1,2}(?:\.\d+)?)\s*[″\"]?\s*(?P<hemi>[NSEWnsew])"
-)
-ADDRESS_RE = re.compile(
-    r"\b(\d{1,6}\s+(?:[A-Za-z0-9.'-]+\s+){0,6}"
-    r"(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|"
-    r"Highway|Hwy|Way|Court|Ct|Parkway|Pkwy|Trail|Trl|Circle|Cir|Terrace|Ter)\b"
-    r"(?:,?\s*(?:MS|Suite|Ste|Unit)\s*[A-Z0-9-]+)?"
-    r"(?:,?\s*[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})?"
-    r"(?:,?\s*(?:Florida|FL)\b)?"
-    r"(?:\s+\d{5}(?:-\d{4})?)?)",
-    re.I,
-)
-COST_UNITS = {
-    "billion": 1_000_000_000,
-    "bn": 1_000_000_000,
-    "million": 1_000_000,
-    "m": 1_000_000,
-    "thousand": 1_000,
-    "k": 1_000,
+    "record_confidence", "voltage_kv", "approximate_line_mileage", "projected_year", "cost", "source_page"
 }
 
 
@@ -403,474 +409,208 @@ def utc_now() -> str:
 
 
 def clean_text(text: str) -> str:
-    text = text.replace("\u00a0", " ").replace("\u2013", "-").replace("\u2014", "-")
+    text = (text or "").replace("\u00a0", " ").replace("\u2013", "-").replace("\u2014", "-")
     return re.sub(r"\s+", " ", text).strip()
 
 
+def normalize_name(text: str) -> str:
+    text = clean_text(text).lower()
+    text = re.sub(r"\b(?:florida power & light|fpl|duke energy florida|tampa electric|project)\b", "", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return clean_text(text)
+
+
+def missing_text(value: str) -> str:
+    value = clean_text(value or "")
+    return value if value and value.upper() != MISSING_TEXT else MISSING_TEXT
+
+
+def has_value(value) -> bool:
+    if isinstance(value, (int, float)):
+        return value != 0
+    return clean_text(str(value or "")) not in {"", MISSING_TEXT, "0"}
+
+
 def get_session() -> requests.Session:
-    s = requests.Session()
-    s.headers.update({
+    session = requests.Session()
+    session.headers.update({
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
     })
-    return s
+    return session
 
 
 def fetch(session: requests.Session, url: str) -> requests.Response | None:
     try:
-        r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
-        r.raise_for_status()
-        return r
+        response = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+        response.raise_for_status()
+        return response
     except requests.RequestException as exc:
         logging.warning("Fetch failed: %s (%s)", url, exc)
         return None
 
 
-def pdf_to_text(content: bytes) -> str:
+def pdf_to_documents(content: bytes, url: str) -> list[SourceDocument]:
+    docs: list[SourceDocument] = []
+    if pdfplumber is not None:
+        try:
+            with pdfplumber.open(io.BytesIO(content)) as pdf:
+                for page_num, page in enumerate(pdf.pages, start=1):
+                    text = clean_text(page.extract_text(x_tolerance=1, y_tolerance=3) or "")
+                    if text:
+                        docs.append(SourceDocument(url=url, text=text, page_number=page_num, kind="pdf"))
+            if docs:
+                return docs
+        except Exception as exc:
+            logging.debug("pdfplumber failed for %s: %s", url, exc)
+
     try:
         reader = PdfReader(io.BytesIO(content))
-        parts = []
-        for page in reader.pages:
+        for page_num, page in enumerate(reader.pages, start=1):
             try:
-                parts.append(page.extract_text() or "")
+                text = clean_text(page.extract_text() or "")
             except Exception:
-                continue
-        return clean_text("\n".join(parts))
+                text = ""
+            if text:
+                docs.append(SourceDocument(url=url, text=text, page_number=page_num, kind="pdf"))
     except Exception as exc:
-        logging.warning("PDF parse failed: %s", exc)
-        return ""
+        logging.warning("PDF parse failed for %s: %s", url, exc)
+    return docs
+
+
+def _same_site_domain(base_domain: str, other_domain: str) -> bool:
+    base_domain = base_domain.lower().split(":")[0]
+    other_domain = other_domain.lower().split(":")[0]
+    if base_domain == other_domain:
+        return True
+    # JEA actively serves project content from both www.jea.com and ebill.jea.com.
+    if base_domain.endswith("jea.com") and other_domain.endswith("jea.com"):
+        return True
+    return False
+
+
+def _link_priority(label: str, href: str) -> int:
+    combined = f"{label} {href}".lower()
+    score = 0
+    for phrase, points in [
+        ("transmission line project", 100),
+        ("electric reliability project", 90),
+        ("substation", 80),
+        ("transmission", 75),
+        ("ten-year site plan", 70),
+        ("ten year site plan", 70),
+        ("current project", 60),
+        ("construction project", 55),
+        ("siting", 40),
+        ("docket", 30),
+        ("filing", 25),
+    ]:
+        if phrase in combined:
+            score += points
+    if href.lower().endswith(".pdf"):
+        score += 20
+    return score
 
 
 def html_to_text_and_links(html: str, base_url: str) -> tuple[str, list[str]]:
     soup = BeautifulSoup(html, "html.parser")
-
     for tag in soup(["script", "style", "noscript", "svg"]):
         tag.decompose()
-
     text = clean_text(soup.get_text(" ", strip=True))
-    links = []
     base_domain = urlparse(base_url).netloc.lower()
-
+    ranked: list[tuple[int, str]] = []
     for a in soup.find_all("a", href=True):
-        href = urljoin(base_url, a["href"].strip())
+        href = urljoin(base_url, a["href"].strip()).split("#")[0]
         parsed = urlparse(href)
-
-        if parsed.scheme not in {"http", "https"}:
+        if parsed.scheme not in {"http", "https"} or not _same_site_domain(base_domain, parsed.netloc):
             continue
-
-        if parsed.netloc.lower() != base_domain:
-            continue
-
         label = clean_text(a.get_text(" ", strip=True))
         combined = f"{label} {href}"
-
         if LINK_KEYWORDS.search(combined) or PDF_RE.search(href):
-            links.append(href.split("#")[0])
-
-    return text, list(dict.fromkeys(links))
-
-
-def crawl_source(session: requests.Session, source: dict) -> list[tuple[str, str]]:
-    queue = [source["url"]]
+            ranked.append((_link_priority(label, href), href))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    links = []
     seen = set()
-    documents = []
+    for _, href in ranked:
+        if href not in seen:
+            seen.add(href)
+            links.append(href)
+    return text, links
 
+
+def should_skip_url(url: str) -> bool:
+    lower = url.lower()
+    return any(part in lower for part in [
+        "/trees", "hurricane", "storm-prep", "storm_secure_underground", "storm-secure-underground",
+        "privacy", "careers", "billing", "outage-map",
+    ])
+
+
+def crawl_source(session: requests.Session, source: dict) -> list[SourceDocument]:
+    queue = list(dict.fromkeys(source.get("seed_urls") or [source["url"]]))
+    seen: set[str] = set()
+    docs: list[SourceDocument] = []
     while queue and len(seen) < source["max_pages"]:
         url = queue.pop(0)
-        if url in seen:
+        if url in seen or should_skip_url(url):
             continue
-
         seen.add(url)
         logging.info("[%s] %s", source["name"], url)
-
         response = fetch(session, url)
         time.sleep(RATE_LIMIT_SECONDS)
-
         if not response:
             continue
-
         ctype = response.headers.get("content-type", "").lower()
         final_url = response.url
-
         if "pdf" in ctype or PDF_RE.search(final_url):
-            text = pdf_to_text(response.content)
-            if text:
-                documents.append((final_url, text))
+            docs.extend(pdf_to_documents(response.content, final_url))
             continue
-
-        if "html" not in ctype and "text" not in ctype and ctype:
+        if ctype and "html" not in ctype and "text" not in ctype:
             continue
-
         text, links = html_to_text_and_links(response.text, final_url)
-
         if text:
-            documents.append((final_url, text))
-
+            docs.append(SourceDocument(url=final_url, text=text, page_number=0, kind="html"))
         for link in links:
-            if link not in seen and link not in queue:
+            if link not in seen and link not in queue and not should_skip_url(link):
                 queue.append(link)
-
-    return documents
-
-
-def split_candidate_blocks(text: str) -> list[str]:
-    pieces = re.split(r"(?<=[.!?])\s+|\s{3,}", text)
-    pieces = [clean_text(p) for p in pieces if len(clean_text(p)) >= 20]
-
-    blocks = []
-
-    for i, piece in enumerate(pieces):
-        if not GRID_KEYWORDS.search(piece):
-            continue
-
-        start = max(0, i - 3)
-        end = min(len(pieces), i + 5)
-        block = clean_text(" ".join(pieces[start:end]))
-
-        if GRID_KEYWORDS.search(block) and FUTURE_KEYWORDS.search(block):
-            blocks.append(block[:3000])
-
-    unique = {}
-
-    for block in blocks:
-        fingerprint = hashlib.sha1(block.lower().encode("utf-8")).hexdigest()
-        unique[fingerprint] = block
-
-    return list(unique.values())
+    return docs
 
 
-def detect_company(block: str, company_hint: str) -> str:
+def detect_company(text: str, hint: str) -> str:
     for pattern, company in COMPANY_PATTERNS:
-        if pattern.search(block):
+        if pattern.search(text):
             return company
-    return company_hint
-
-
-def detect_type(block: str) -> str:
-    for pattern, project_type in TYPE_PATTERNS:
-        if pattern.search(block):
-            return project_type
-    return "Transmission / substation project"
-
-
-def detect_year(block: str) -> str:
-    years = sorted({int(y) for y in YEAR_RE.findall(block)})
-    return "; ".join(str(y) for y in years[:8])
-
-
-def detect_cost(block: str) -> str:
-    matches = []
-
-    for match in MONEY_RE.finditer(block):
-        raw = clean_text(match.group(0))
-        number = float(match.group("num").replace(",", ""))
-        unit = (match.group("unit") or "").lower()
-
-        if unit or number >= 100000:
-            matches.append(raw)
-
-    return "; ".join(dict.fromkeys(matches[:5]))
-
-
-def detect_duration(block: str) -> str:
-    values = []
-
-    for pattern in DURATION_PATTERNS:
-        for match in pattern.finditer(block):
-            values.append(clean_text(match.group(0)))
-
-    return "; ".join(dict.fromkeys(values[:5]))
-
-
-def detect_substations(block: str) -> tuple[str, str]:
-    for pattern in SUBSTATION_PAIR_PATTERNS:
-        match = pattern.search(block)
-        if match:
-            start = clean_text(match.group(1))
-            end = clean_text(match.group(2))
-            return start, end
-
-    singles = []
-    seen = set()
-
-    for match in SINGLE_SUBSTATION_RE.finditer(block):
-        name = clean_text(match.group(1))
-        key = name.lower()
-
-        if key not in seen:
-            seen.add(key)
-            singles.append(name)
-
-    if len(singles) >= 2:
-        return singles[0], singles[1]
-
-    if len(singles) == 1:
-        return singles[0], ""
-
-    return "", ""
-
-
-def detect_counties(block: str) -> str:
-    counties = []
-
-    for county in COUNTY_RE.findall(block):
-        county = clean_text(county)
-        if county.lower() not in {c.lower() for c in counties}:
-            counties.append(county)
-
-    return "; ".join(f"{county} County" for county in counties[:10])
-
-
-def detect_case_number(block: str) -> str:
-    values = []
-
-    for pattern in CASE_PATTERNS:
-        for match in pattern.finditer(block):
-            values.append(clean_text(match.group(1)))
-
-    return "; ".join(dict.fromkeys(values[:5]))
-
-
-def detect_filing_dates(block: str) -> str:
-    dates = []
-
-    for pattern in DATE_PATTERNS:
-        for match in pattern.finditer(block):
-            dates.append(clean_text(match.group(1)))
-
-    return "; ".join(dict.fromkeys(dates[:6]))
-
-
-def detect_locations(
-    block: str,
-    counties: str,
-    start_substation: str,
-    end_substation: str,
-) -> str:
-    locations = []
-
-    if start_substation:
-        locations.append(start_substation)
-
-    if end_substation:
-        locations.append(end_substation)
-
-    if counties:
-        locations.extend([x.strip() for x in counties.split(";") if x.strip()])
-
-    city_context_re = re.compile(
-        r"\b(?:City of|near|in|at|from|to|between)\s+"
-        r"([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})"
-    )
-
-    for city in city_context_re.findall(block):
-        city = clean_text(city)
-
-        if not re.search(
-            r"\b(the|a|an|construct|construction|project|service|existing|new)\b",
-            city,
-            re.I,
-        ):
-            locations.append(city)
-
-    output = []
-    seen = set()
-
-    for location in locations:
-        key = location.lower()
-
-        if key not in seen:
-            seen.add(key)
-            output.append(location)
-
-    return "; ".join(output[:12])
-
-
-def detect_voltage(block: str) -> str:
-    values = list(dict.fromkeys(KV_RE.findall(block)))
-    return "; ".join(values[:6])
-
-
-def detect_miles(block: str) -> str:
-    values = list(dict.fromkeys(MILES_RE.findall(block)))
-    return "; ".join(values[:6])
-
-
-def guess_project_name(block: str, source_name: str) -> str:
-    patterns = [
-        r"\b([A-Z][A-Za-z0-9&'(). /-]{3,110}?(?:Transmission Line|Transmission Project|Substation|Switchyard|Switching Station))\b",
-        r"\b([A-Z][A-Za-z0-9&'(). /-]{3,80}?\s*-\s*[A-Z][A-Za-z0-9&'(). /-]{3,80}?\s+(?:500|230|161|138|115|69)\s*kV(?:\s+Transmission(?:\s+Line)?)?)\b",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, block, re.I)
-        if match:
-            return clean_text(match.group(1))[:220]
-
-    words = block.split()
-    return f"{source_name}: {' '.join(words[:18])}"[:220]
-
-
-def make_project_id(
-    planning_company: str,
-    name: str,
-    start_substation: str,
-    end_substation: str,
-    voltage: str,
-    case_number: str,
-) -> str:
-    canonical = "|".join(
-        clean_text(value).lower()
-        for value in (
-            planning_company,
-            name,
-            start_substation,
-            end_substation,
-            voltage,
-            case_number,
-        )
-    )
-
-    return hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:20]
-
-
-def _apply_hemisphere(value: float, hemisphere: str | None) -> float:
-    if not hemisphere:
-        return value
-    sign = -1 if hemisphere.upper() in {"S", "W"} else 1
-    return sign * abs(value)
-
-
-def _valid_coordinate(latitude: float, longitude: float) -> bool:
-    return -90 <= latitude <= 90 and -180 <= longitude <= 180
-
-
-def _in_florida(latitude: float, longitude: float) -> bool:
-    return 24.0 <= latitude <= 31.5 and -88.0 <= longitude <= -79.5
-
-
-def _orient_pair(latitude: float, longitude: float) -> tuple[float, float]:
-    if _in_florida(latitude, longitude):
-        return latitude, longitude
-    if _in_florida(longitude, latitude):
-        return longitude, latitude
-    return latitude, longitude
-
-
-def _choose_coordinates(candidates: list[tuple[float, float]]) -> tuple[float, float]:
-    usable = []
-    for latitude, longitude in candidates:
-        latitude, longitude = _orient_pair(latitude, longitude)
-        if _valid_coordinate(latitude, longitude):
-            usable.append((latitude, longitude))
-
-    for latitude, longitude in usable:
-        if _in_florida(latitude, longitude):
-            return latitude, longitude
-
-    if usable:
-        return usable[0]
-    return 0.0, 0.0
-
-
-def detect_coordinates(text: str) -> tuple[float, float]:
-    """Return latitude and longitude. Unlabeled pairs must fall inside Florida."""
-    if not text:
-        return 0.0, 0.0
-
-    candidates = []
-
-    latitude_match = LAT_LABEL_RE.search(text)
-    longitude_match = LON_LABEL_RE.search(text)
-    if latitude_match and longitude_match:
-        latitude = _apply_hemisphere(float(latitude_match.group(1)), latitude_match.group(2))
-        longitude = _apply_hemisphere(float(longitude_match.group(1)), longitude_match.group(2))
-        latitude, longitude = _orient_pair(latitude, longitude)
-        if _valid_coordinate(latitude, longitude):
-            candidates.append((latitude, longitude))
-
-    for pattern in (COORD_HEMI_RE, COORD_PAIR_RE):
-        for match in pattern.finditer(text):
-            latitude = _apply_hemisphere(float(match.group("lat")), match.group("lat_hemi"))
-            longitude = _apply_hemisphere(float(match.group("lon")), match.group("lon_hemi"))
-            latitude, longitude = _orient_pair(latitude, longitude)
-            labeled = bool(match.group("lat_hemi") or match.group("lon_hemi"))
-            if not _valid_coordinate(latitude, longitude):
-                continue
-            if labeled or _in_florida(latitude, longitude):
-                candidates.append((latitude, longitude))
-
-    dms_values = []
-    for match in DMS_RE.finditer(text):
-        degrees = float(match.group("deg"))
-        minutes = float(match.group("min"))
-        seconds = float(match.group("sec"))
-        value = degrees + minutes / 60 + seconds / 3600
-        value = _apply_hemisphere(value, match.group("hemi"))
-        dms_values.append((value, match.group("hemi").upper()))
-
-    for index, (latitude, hemisphere) in enumerate(dms_values):
-        if hemisphere not in {"N", "S"}:
-            continue
-        for longitude, other in dms_values[index + 1 : index + 3]:
-            if other in {"E", "W"} and _valid_coordinate(latitude, longitude):
-                candidates.append((latitude, longitude))
-                break
-
-    return _choose_coordinates(candidates)
-
-
-def detect_address(text: str) -> str:
-    if not text:
-        return ""
-
-    for match in ADDRESS_RE.finditer(text):
-        address = clean_text(match.group(1))
-        if len(address) >= 8:
-            return address[:180]
-
-    return ""
-
-
-def parse_voltage(text: str, *, allow_bare: bool = False) -> float:
-    labeled = [float(value) for value in KV_RE.findall(text or "")]
-    if labeled:
-        return max(labeled)
-    if not allow_bare:
-        return 0.0
-
-    bare = []
-    for value in re.findall(r"\b(\d{2,3})(?:\.\d+)?\b", text or ""):
-        number = float(value)
-        if 30 <= number <= 800:
-            bare.append(number)
-    return max(bare) if bare else 0.0
-
-
-def parse_miles(text: str, *, allow_bare: bool = False) -> float:
-    labeled = [float(value) for value in MILES_RE.findall(text or "")]
-    if labeled:
-        return labeled[0]
-    if allow_bare and re.fullmatch(r"\d+(?:\.\d+)?", (text or "").strip()):
-        return float(text)
+    return hint
+
+
+def parse_voltage(text: str, allow_bare: bool = False) -> float:
+    vals = [float(v) for v in KV_RE.findall(text or "")]
+    if vals:
+        return max(vals)
+    if allow_bare:
+        vals = [float(v) for v in re.findall(r"\b(\d{2,3})\b", text or "") if 30 <= float(v) <= 800]
+        return max(vals) if vals else 0.0
+    return 0.0
+
+
+def parse_miles(text: str, allow_bare: bool = False) -> float:
+    vals = [float(v) for v in MILES_RE.findall(text or "")]
+    if vals:
+        return vals[0]
+    stripped = clean_text(text)
+    if allow_bare and re.fullmatch(r"\d+(?:\.\d+)?", stripped):
+        return float(stripped)
     return 0.0
 
 
 def parse_year(text: str) -> int:
-    years = [int(value) for value in YEAR_RE.findall(text or "")]
-    stripped = (text or "").strip()
-    if not years and re.fullmatch(r"20\d{2}", stripped):
-        years = [int(stripped)]
-    return min(years) if years else 0
+    years = [int(v) for v in YEAR_RE.findall(text or "")]
+    return max(years) if years else 0
 
 
 def parse_cost(text: str) -> float:
-    stripped = (text or "").strip()
-    if not stripped or stripped in {MISSING_TEXT, "0"}:
-        return 0.0
-
     best = 0.0
-    for match in MONEY_RE.finditer(stripped):
+    for match in MONEY_RE.finditer(text or ""):
         number = float(match.group("num").replace(",", ""))
         unit = (match.group("unit") or "").lower()
         if unit:
@@ -878,56 +618,548 @@ def parse_cost(text: str) -> float:
         elif number < 100000:
             continue
         best = max(best, number)
-
-    if best:
-        return best
-    if re.fullmatch(r"\d+(?:\.\d+)?", stripped):
-        return float(stripped)
-    return 0.0
+    return best
 
 
-def missing_text(value: str) -> str:
-    text = clean_text(value or "")
-    return text if text and text.upper() != "NA" else MISSING_TEXT
+def detect_counties(text: str) -> str:
+    out: list[str] = []
+    for county in COUNTY_RE.findall(text or ""):
+        county = clean_text(county)
+        if len(county.split()) > 5:
+            continue
+        full = f"{county} County"
+        if full.lower() not in {x.lower() for x in out}:
+            out.append(full)
+    return "; ".join(out[:8])
 
 
-def has_value(value) -> bool:
-    if isinstance(value, (int, float)):
-        return value != 0
-    text = clean_text(str(value or ""))
-    return text not in {"", MISSING_TEXT, "0"}
+def detect_case_number(text: str) -> str:
+    values: list[str] = []
+    for pattern in CASE_PATTERNS:
+        values.extend(clean_text(m.group(1)) for m in pattern.finditer(text or ""))
+    return "; ".join(dict.fromkeys(values))
 
 
-def format_cell(field: str, value) -> str:
-    if field in NUMERIC_FIELDS:
-        if field == "projected_year":
-            number = parse_year(str(value)) if not isinstance(value, (int, float)) else int(value)
-        elif field == "cost":
-            number = value if isinstance(value, (int, float)) else parse_cost(str(value))
-        elif field == "voltage_kv":
-            number = value if isinstance(value, (int, float)) else parse_voltage(str(value), allow_bare=True)
-        elif field == "approximate_line_mileage":
-            number = value if isinstance(value, (int, float)) else parse_miles(str(value), allow_bare=True)
+def detect_filing_dates(text: str) -> str:
+    values: list[str] = []
+    for pattern in DATE_PATTERNS:
+        values.extend(clean_text(m.group(1)) for m in pattern.finditer(text or ""))
+    return "; ".join(dict.fromkeys(values))
+
+
+def detect_duration(text: str) -> str:
+    values: list[str] = []
+    for pattern in DURATION_PATTERNS:
+        values.extend(clean_text(m.group(0)) for m in pattern.finditer(text or ""))
+    return "; ".join(dict.fromkeys(values[:4]))
+
+
+def station_name_is_valid(name: str) -> bool:
+    name = clean_text(name)
+    if not name or len(name) > 55:
+        return False
+    tokens = re.findall(r"[A-Za-z]+", name.lower())
+    if not tokens:
+        return False
+    bad = sum(1 for token in tokens if token in BAD_STATION_WORDS)
+    if bad >= max(1, len(tokens) // 2):
+        return False
+    if any(ch in name for ch in [":", ";"]):
+        return False
+    return True
+
+
+def extract_station_names(text: str) -> list[str]:
+    names: list[str] = []
+    for match in STATION_TOKEN_RE.finditer(text or ""):
+        name = clean_text(match.group(1)).strip(" -,:;.")
+        # If a sentence fragment slipped in, keep the shortest plausible capitalized suffix.
+        words = name.split()
+        while len(words) > 1 and words[0].lower() in BAD_STATION_WORDS:
+            words.pop(0)
+        name = " ".join(words)
+        if station_name_is_valid(name) and name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    return names
+
+
+def detect_substations_strict(text: str) -> tuple[str, str]:
+    pair_patterns = [
+        # "transmission bus at Pyrite Substation ... connect a new Catfish substation"
+        re.compile(
+            r"(?i:transmission\s+bus\s+at)\s+([A-Z][A-Za-z0-9&'(). -]{1,40}?)\s+"
+            r"(?i:Substation|Switchyard).{0,180}?(?i:connect(?:ing)?\s+(?:a\s+)?(?:new\s+)?)"
+            r"([A-Z][A-Za-z0-9&'(). -]{1,40}?)\s+(?i:Substation|Switchyard)"
+        ),
+        re.compile(
+            r"(?i:\bfrom)\s+(?:the\s+)?(?:new\s+)?([A-Z][A-Za-z0-9&'(). -]{1,45}?)\s+"
+            r"(?i:Substation|Switchyard).{0,180}?(?i:\bto)\s+(?:the\s+)?(?:new\s+)?"
+            r"([A-Z][A-Za-z0-9&'(). -]{1,45}?)\s+(?i:Substation|Switchyard)"
+        ),
+        re.compile(
+            r"(?i:\bfrom)\s+([A-Z][A-Za-z0-9&'().-]{1,30})\s+"
+            r"(?:500|230|161|138|115|69)\s*(?i:kV)\s+(?i:to)\s+"
+            r"([A-Z][A-Za-z0-9&'().-]{1,30})\s+(?i:Substation|Switchyard)"
+        ),
+        re.compile(
+            r"\b([A-Z][A-Za-z0-9&'().-]{1,30})\s*[-–]\s*"
+            r"([A-Z][A-Za-z0-9&'().-]{1,30})\s+(?:500|230|161|138|115|69)\s*(?i:kV)"
+        ),
+    ]
+    for pattern in pair_patterns:
+        match = pattern.search(text or "")
+        if match:
+            a = re.sub(r"^FPL\s+", "", clean_text(match.group(1)).strip(" -,:;."), flags=re.I)
+            b = re.sub(r"^FPL\s+", "", clean_text(match.group(2)).strip(" -,:;."), flags=re.I)
+            if station_name_is_valid(a) and station_name_is_valid(b):
+                return a, b
+    names = extract_station_names(text)
+    if len(names) >= 2:
+        return names[0], names[1]
+    if names:
+        return names[0], ""
+    return "", ""
+
+
+def detect_address(text: str) -> str:
+    for match in ADDRESS_RE.finditer(text or ""):
+        address = clean_text(match.group(1))
+        if BAD_ADDRESS_RE.search(address):
+            continue
+        if not re.match(r"^\d{1,6}\s+", address):
+            continue
+        return address[:180]
+    return ""
+
+
+def detect_coordinates(text: str) -> tuple[float, float]:
+    for match in COORD_PAIR_RE.finditer(text or ""):
+        lat = float(match.group("lat"))
+        lon = float(match.group("lon"))
+        if match.group("lat_hemi") and match.group("lat_hemi").upper() == "S":
+            lat = -abs(lat)
+        if match.group("lon_hemi") and match.group("lon_hemi").upper() == "W":
+            lon = -abs(lon)
+        if 24.0 <= lat <= 31.5 and -88.0 <= lon <= -79.5:
+            return lat, lon
+    return 0.0, 0.0
+
+
+def project_type_from_text(project_name: str, text: str, mileage: float) -> str:
+    combined = f"{project_name} {text}".lower()
+    if "battery energy storage" in project_name.lower() or "bess" in project_name.lower():
+        if re.search(r"new\s+\d{2,3}(?:/\d{2,3}(?:\.\d+)?)?\s*kv\s+substation", combined):
+            return "New substation / battery interconnection"
+        return "Battery interconnection"
+    if "solar energy center" in project_name.lower() or "solar" in project_name.lower():
+        if re.search(r"new\s+\d{2,3}(?:/\d{2,3}(?:\.\d+)?)?\s*kv\s+substation", combined):
+            return "New substation / generator interconnection"
+        return "Generator interconnection"
+    if re.search(r"\b(rebuild|reconduct|uprate|upgrade|replace)\w*\b", combined) and "transmission" in combined:
+        return "Transmission upgrade"
+    if re.search(r"\bnew\b.{0,60}\bsubstation\b|\bconstruct\b.{0,60}\bsubstation\b", combined):
+        return "New substation"
+    if re.search(r"\b(upgrade|expand|replace|rebuild)\w*\b.{0,60}\bsubstation\b", combined):
+        return "Substation upgrade"
+    if mileage > 0 or re.search(r"\bconstruct\b.{0,100}\b(?:transmission )?line\b", combined):
+        return "New transmission line"
+    if "switchyard" in combined or "switching station" in combined:
+        return "Switchyard / switching station"
+    if "substation" in combined:
+        return "Substation project"
+    return "Transmission project"
+
+
+def make_project_id(company: str, project_name: str, counties: str, voltage: float, case_number: str) -> str:
+    canonical = "|".join([
+        normalize_name(company), normalize_name(project_name), normalize_name(counties),
+        str(int(voltage) if voltage else 0), normalize_name(case_number),
+    ])
+    return hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:20]
+
+
+def base_record(
+    source: dict,
+    doc: SourceDocument,
+    now: str,
+    *,
+    project_name: str,
+    project_type: str,
+    start: str = "",
+    end: str = "",
+    voltage: float = 0.0,
+    mileage: float = 0.0,
+    counties: str = "",
+    case_number: str = "",
+    filing_dates: str = "",
+    projected_year: int = 0,
+    cost: float = 0.0,
+    construction_time: str = "",
+    address: str = "",
+    projected_locations: str = "",
+    excerpt: str = "",
+    parser_type: str = "generic",
+) -> ProjectRecord:
+    company = detect_company(excerpt or doc.text, source["company_hint"])
+    project_id = make_project_id(company, project_name, counties, voltage, case_number)
+    return ProjectRecord(
+        project_id=project_id,
+        planning_company=missing_text(company),
+        project_name=missing_text(project_name),
+        project_type=missing_text(project_type),
+        record_confidence=0.0,
+        parser_type=parser_type,
+        review_reason=MISSING_TEXT,
+        gis=MISSING_TEXT,
+        centroid=MISSING_TEXT,
+        address=missing_text(address),
+        location_method=MISSING_TEXT,
+        gis_source=missing_text(source.get("gis_reference", "")),
+        location_confidence="none",
+        spatial_role=MISSING_TEXT,
+        location_evidence=MISSING_TEXT,
+        starting_substation=missing_text(start),
+        ending_substation=missing_text(end),
+        voltage_kv=voltage,
+        approximate_line_mileage=mileage,
+        counties_crossed=missing_text(counties),
+        regulatory_case_number=missing_text(case_number),
+        filing_dates=missing_text(filing_dates),
+        projected_year=projected_year,
+        cost=cost,
+        construction_time=missing_text(construction_time),
+        projected_locations=missing_text(projected_locations),
+        source_name=source["name"],
+        source_url=doc.url,
+        source_page=doc.page_number,
+        source_excerpt=missing_text((excerpt or doc.text)[:2200]),
+        first_seen=now,
+        last_seen=now,
+        active="yes",
+    )
+
+
+# ---------------- Source-specific extraction ----------------
+
+FPL_SCHEDULE10_HEADER = re.compile(
+    r"Schedule\s+10\s+Status Report and Specifications of Proposed Transmission Lines",
+    re.I,
+)
+
+
+def _fpl_field(section: str, number: int, next_number: int | None) -> str:
+    if next_number is None:
+        pattern = rf"\({number}\)\s*[^:]+:\s*(.*)$"
+    else:
+        pattern = rf"\({number}\)\s*[^:]+:\s*(.*?)\s*\({next_number}\)"
+    match = re.search(pattern, section, re.I | re.S)
+    return clean_text(match.group(1)) if match else ""
+
+
+def _extract_timing(text: str) -> tuple[int, int, str]:
+    start_match = re.search(r"Start\s*date\s*:\s*(20\d{2})", text or "", re.I)
+    end_match = re.search(r"End\s*date\s*:\s*(20\d{2})", text or "", re.I)
+    start = int(start_match.group(1)) if start_match else 0
+    end = int(end_match.group(1)) if end_match else 0
+    label = f"{start}-{end}" if start and end else str(end or start or "")
+    return start, end, label
+
+
+def _clean_fpl_project_title(raw: str) -> str:
+    """Extract the actual Schedule 10 project title from noisy PDF reading order."""
+    title = clean_text(raw)
+    title = re.sub(r"^Florida Power\s*&\s*Light Company\s+\d+\s+Page\s+\d+\s+of\s+\d+\s*", "", title, flags=re.I)
+    title = re.sub(r"^Florida Power\s*&\s*Light Company\s+\d+\s*", "", title, flags=re.I)
+
+    # Schedule 10 titles usually end with a county parenthetical. PDF text order can
+    # append the prior project's narrative before field (1), so trim at that boundary.
+    county_title = re.search(r"(.{3,140}?\([^()]{2,50}County\))", title, re.I)
+    if county_title:
+        title = county_title.group(1)
+    else:
+        # Common non-generation transmission/substation titles.
+        named = re.search(
+            r"([A-Z][A-Za-z0-9&'(). /–-]{3,140}?(?:Transmission Line(?: Project)?|Substation(?: Project)?|Electric Reliability Project))",
+            title, re.I
+        )
+        if named:
+            title = named.group(1)
+
+    # Remove obvious narrative spillover if still present.
+    title = re.split(r"\b(?:The|This)\s+[A-Z][A-Za-z0-9&'(). -]{2,80}\s+(?:will|is|was)\b", title, maxsplit=1)[0]
+    return clean_text(title).strip(" -:;")[:180]
+
+
+def extract_fpl_schedule10_records(source: dict, doc: SourceDocument, now: str) -> list[ProjectRecord]:
+    text = doc.text
+    matches = list(FPL_SCHEDULE10_HEADER.finditer(text))
+    if not matches and "(1) Point of Origin and Termination:" not in text:
+        return []
+
+    starts = [m.start() for m in matches] if matches else [0]
+    records: list[ProjectRecord] = []
+    for idx, start_pos in enumerate(starts):
+        end_pos = starts[idx + 1] if idx + 1 < len(starts) else len(text)
+        section = text[start_pos:end_pos]
+        header_match = FPL_SCHEDULE10_HEADER.search(section)
+        after_header = section[header_match.end():] if header_match else section
+        title_match = re.search(r"(.*?)\s*\(1\)\s*Point of Origin and Termination\s*:", after_header, re.I | re.S)
+        if not title_match:
+            continue
+        project_name = _clean_fpl_project_title(title_match.group(1))
+        if not project_name or len(project_name) < 4:
+            continue
+
+        origin = _fpl_field(after_header, 1, 2)
+        line_length_field = _fpl_field(after_header, 4, 5)
+        voltage_field = _fpl_field(after_header, 5, 6)
+        timing_field = _fpl_field(after_header, 6, 7)
+        investment_field = _fpl_field(after_header, 7, 8)
+        substations_field = _fpl_field(after_header, 8, 9)
+        participation_field = _fpl_field(after_header, 9, None)
+
+        description = participation_field
+        # Structured fields are authoritative. Narrative endpoints are used for true
+        # line segments (mileage > 0) and as GIS context for zero-mile interconnections.
+        mileage = parse_miles(line_length_field, allow_bare=True)
+        origin_names = extract_station_names(origin)
+        sub_names = extract_station_names(substations_field)
+        narrative_start, narrative_end = detect_substations_strict(description)
+
+        start_station = origin_names[0] if origin_names else (sub_names[0] if sub_names else "")
+        end_station = origin_names[1] if len(origin_names) > 1 else ""
+        if mileage > 0 and narrative_start and narrative_end:
+            start_station, end_station = narrative_start, narrative_end
+        elif not start_station and narrative_start:
+            start_station = narrative_start
+            end_station = narrative_end
+        elif not end_station:
+            candidates = [n for n in sub_names[1:] + origin_names[1:] if n.lower() != start_station.lower()]
+            end_station = candidates[0] if candidates else ""
+
+        voltage = parse_voltage(voltage_field, allow_bare=True)
+        _, end_year, construction_time = _extract_timing(timing_field)
+        projected_year = end_year or parse_year(timing_field)
+        counties = detect_counties(project_name + " " + section)
+        cost = parse_cost(investment_field)
+        project_type = project_type_from_text(project_name, section, mileage)
+        projected_locations = "; ".join(dict.fromkeys(
+            [x for x in [start_station, end_station] + ([c.strip() for c in counties.split(";")] if counties else []) if x]
+        ))
+
+        record = base_record(
+            source, doc, now,
+            project_name=project_name,
+            project_type=project_type,
+            start=start_station,
+            end=end_station,
+            voltage=voltage,
+            mileage=mileage,
+            counties=counties,
+            projected_year=projected_year,
+            cost=cost,
+            construction_time=construction_time,
+            projected_locations=projected_locations,
+            excerpt=section,
+            parser_type="fpl_schedule10",
+        )
+        records.append(record)
+    return records
+
+
+def split_candidate_blocks(text: str) -> list[str]:
+    pieces = re.split(r"(?<=[.!?])\s+|\s{3,}", text or "")
+    pieces = [clean_text(p) for p in pieces if len(clean_text(p)) >= 25]
+    blocks: list[str] = []
+    for i, piece in enumerate(pieces):
+        if not GRID_KEYWORDS.search(piece):
+            continue
+        block = clean_text(" ".join(pieces[max(0, i - 2): min(len(pieces), i + 4)]))[:2200]
+        if GRID_KEYWORDS.search(block) and FUTURE_KEYWORDS.search(block):
+            blocks.append(block)
+    return list(dict.fromkeys(blocks))
+
+
+def guess_project_name(block: str, source_name: str) -> str:
+    patterns = [
+        r"\b([A-Z][A-Za-z0-9&'(). /-]{3,100}?(?:Transmission Line Project|Transmission Line|Transmission Project))\b",
+        r"\b([A-Z][A-Za-z0-9&'(). /-]{3,85}?(?:Substation|Switchyard|Switching Station))\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, block, re.I)
+        if match:
+            name = clean_text(match.group(1))
+            if not BAD_ADDRESS_RE.search(name):
+                return name[:180]
+    return f"{source_name}: {' '.join(block.split()[:12])}"[:180]
+
+
+def generic_records(source: dict, doc: SourceDocument, now: str, parser_type: str = "generic") -> list[ProjectRecord]:
+    records: list[ProjectRecord] = []
+    for block in split_candidate_blocks(doc.text):
+        project_name = guess_project_name(block, source["name"])
+        start, end = detect_substations_strict(block)
+        voltage = parse_voltage(block)
+        mileage = parse_miles(block)
+        counties = detect_counties(block)
+        case_number = detect_case_number(block)
+        filing_dates = detect_filing_dates(block)
+        projected_year = parse_year(block)
+        cost = parse_cost(block)
+        duration = detect_duration(block)
+        address = detect_address(block)
+        project_type = project_type_from_text(project_name, block, mileage)
+        locations = "; ".join(dict.fromkeys([x for x in [start, end] + ([c.strip() for c in counties.split(";")] if counties else []) if x]))
+        records.append(base_record(
+            source, doc, now,
+            project_name=project_name,
+            project_type=project_type,
+            start=start,
+            end=end,
+            voltage=voltage,
+            mileage=mileage,
+            counties=counties,
+            case_number=case_number,
+            filing_dates=filing_dates,
+            projected_year=projected_year,
+            cost=cost,
+            construction_time=duration,
+            address=address,
+            projected_locations=locations,
+            excerpt=block,
+            parser_type=parser_type,
+        ))
+    return records
+
+
+def extract_dep_records(source: dict, doc: SourceDocument, now: str) -> list[ProjectRecord]:
+    text = doc.text
+    # Individual DEP transmission-project pages are highly structured in prose.
+    # Parse them as one project before falling back to generic blocks.
+    if re.search(r"transmission\s+line\s+project", text, re.I):
+        start_station = end_station = ""
+        match = re.search(
+            r"beginning\s+at\s+(?:the\s+)?([A-Z][A-Za-z0-9&'(). -]{1,55}?)\s+Substation"
+            r".{0,500}?ending\s+at\s+(?:the\s+)?([A-Z][A-Za-z0-9&'(). -]{1,55}?)\s+Substation",
+            text, re.I
+        )
+        if match:
+            start_station = clean_text(match.group(1))
+            end_station = clean_text(match.group(2))
         else:
-            try:
-                number = float(value)
-            except (TypeError, ValueError):
-                number = 0
+            start_station, end_station = detect_substations_strict(text)
 
-        if not number:
-            return "0"
-        if float(number).is_integer():
-            return str(int(number))
-        return f"{float(number):.4f}".rstrip("0").rstrip(".")
+        voltage = parse_voltage(text)
+        mileage = parse_miles(text)
+        counties = detect_counties(text)
+        case_number = detect_case_number(text)
+        # DEP pages commonly expose TA and DOAH/PSC numbers in addition to generic Case No.
+        extras = []
+        for pattern in [r"\b(TA\d{2}-\d{1,3})\b", r"\b(20\d{6})\b", r"\b(\d{2}-\d{6}TL)\b"]:
+            extras.extend(re.findall(pattern, text, re.I))
+        case_number = "; ".join(dict.fromkeys([x for x in ([case_number] if case_number else []) + extras if x]))
+        filing_dates = detect_filing_dates(text)
 
-    if field == "active":
-        text_value = clean_text(str(value or ""))
-        return text_value or "yes"
-    if field in {"project_id", "first_seen", "last_seen"}:
-        return clean_text(str(value or ""))
+        if start_station and end_station:
+            project_name = f"{start_station}-{end_station} {int(voltage) if voltage else ''} kV Transmission Line Project".replace("  ", " ")
+        else:
+            title = re.search(r"([A-Z][A-Za-z0-9&'(). /–-]{3,160}?Transmission Line Project)", text, re.I)
+            project_name = clean_text(title.group(1)) if title else guess_project_name(text[:1800], source["name"])
 
-    return missing_text(str(value or ""))
+        projected_locations = "; ".join(dict.fromkeys(
+            [x for x in [start_station, end_station] + ([c.strip() for c in counties.split(";")] if counties else []) if x]
+        ))
+        record = base_record(
+            source, doc, now,
+            project_name=project_name,
+            project_type="New transmission line",
+            start=start_station, end=end_station, voltage=voltage, mileage=mileage,
+            counties=counties, case_number=case_number, filing_dates=filing_dates,
+            projected_year=parse_year(text), cost=parse_cost(text),
+            construction_time=detect_duration(text),
+            address=detect_address(text), projected_locations=projected_locations,
+            excerpt=text, parser_type="dep_project_page",
+        )
+        return [record]
 
+    # Listing/navigation pages can mention dozens of facilities; generic candidates
+    # are retained only for review/strong-evidence validation.
+    return generic_records(source, doc, now, parser_type="dep_listing")
+
+
+def extract_records(source: dict, doc: SourceDocument, now: str) -> list[ProjectRecord]:
+    parser = source.get("parser", "generic")
+    if parser == "fpl_schedule10":
+        return extract_fpl_schedule10_records(source, doc, now)
+    if parser == "dep":
+        return extract_dep_records(source, doc, now)
+    return generic_records(source, doc, now, parser_type="generic")
+
+
+# ---------------- Validation / quarantine ----------------
+
+def validate_record(record: ProjectRecord) -> tuple[float, str]:
+    score = 0.0
+    reasons: list[str] = []
+    text = record.source_excerpt if record.source_excerpt != MISSING_TEXT else ""
+
+    if record.parser_type == "fpl_schedule10":
+        score += 0.20
+    elif record.parser_type == "dep_project_page":
+        score += 0.12
+
+    if record.project_name != MISSING_TEXT and not record.project_name.startswith(record.source_name):
+        score += 0.16
+    else:
+        reasons.append("generic_or_missing_project_name")
+
+    if record.project_type not in {MISSING_TEXT, "Transmission project"}:
+        score += 0.08
+    if record.voltage_kv:
+        score += 0.13
+    else:
+        reasons.append("missing_voltage")
+    if record.starting_substation != MISSING_TEXT:
+        score += 0.14
+    else:
+        reasons.append("missing_starting_substation")
+    if record.ending_substation != MISSING_TEXT:
+        score += 0.08
+    if record.approximate_line_mileage or record.project_type.startswith("Substation") or "interconnection" in record.project_type.lower():
+        score += 0.06
+    if record.counties_crossed != MISSING_TEXT:
+        score += 0.07
+    if record.projected_year:
+        score += 0.07
+    else:
+        reasons.append("missing_projected_year")
+    if record.regulatory_case_number != MISSING_TEXT:
+        score += 0.05
+    if record.filing_dates != MISSING_TEXT:
+        score += 0.03
+    if record.address != MISSING_TEXT:
+        score += 0.02
+
+    negative_hits = [p.pattern for p in NON_PROJECT_PATTERNS if p.search(text)]
+    strong_identity = record.starting_substation != MISSING_TEXT and (record.voltage_kv or record.regulatory_case_number != MISSING_TEXT)
+    if negative_hits and not strong_identity:
+        score -= 0.45
+        reasons.append("non_project_page_signal")
+
+    # Generic pages must have stronger evidence than source-specific structured parsers.
+    if record.parser_type in {"generic", "dep_listing"}:
+        if record.starting_substation == MISSING_TEXT and record.regulatory_case_number == MISSING_TEXT:
+            score -= 0.12
+        if not record.projected_year and not FUTURE_KEYWORDS.search(text):
+            score -= 0.08
+
+    score = max(0.0, min(1.0, round(score, 3)))
+    if not reasons:
+        reasons.append("accepted_structured_evidence")
+    return score, ";".join(dict.fromkeys(reasons))
+
+
+# ---------------- GIS / geocoding enrichment ----------------
 
 def _arcgis_escape(value: str) -> str:
     return (value or "").replace("'", "''")
@@ -936,114 +1168,65 @@ def _arcgis_escape(value: str) -> str:
 def _normalize_station_name(name: str) -> str:
     name = clean_text(name or "")
     name = re.sub(r"\b(?:substation|switchyard|switching station)\b", "", name, flags=re.I)
-    name = re.sub(r"^(?:the)\s+", "", name, flags=re.I)
     return clean_text(name.strip(" -,:;"))
 
 
-def _geojson_compact(geometry: dict | None) -> str:
-    if not geometry:
-        return ""
-    return json.dumps(geometry, separators=(",", ":"), ensure_ascii=False)
+def _candidate_owner_text(props: dict) -> str:
+    chunks = []
+    for key, value in props.items():
+        upper = str(key).upper()
+        if any(token in upper for token in ["OWNER", "UTILITY", "COMPANY", "OPERATOR"]):
+            chunks.append(str(value or ""))
+    return clean_text(" ".join(chunks))
 
 
-def _geometry_centroid(geometry: dict | None) -> tuple[float, float] | None:
-    """Return (latitude, longitude) for Point/LineString/MultiLineString GeoJSON."""
-    if not geometry:
-        return None
-
-    gtype = geometry.get("type")
-    coords = geometry.get("coordinates")
-    if not coords:
-        return None
-
-    if gtype == "Point":
-        lon, lat = coords[:2]
-        return float(lat), float(lon)
-
-    def line_centroid(line):
-        if not line:
-            return None
-        if len(line) == 1:
-            lon, lat = line[0][:2]
-            return float(lat), float(lon)
-
-        total = 0.0
-        weighted_lon = 0.0
-        weighted_lat = 0.0
-        for a, b in zip(line, line[1:]):
-            x1, y1 = float(a[0]), float(a[1])
-            x2, y2 = float(b[0]), float(b[1])
-            # Euclidean degrees are sufficient for the centroid estimate; this is
-            # not used as an engineering distance calculation.
-            length = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
-            if length == 0:
-                continue
-            weighted_lon += ((x1 + x2) / 2.0) * length
-            weighted_lat += ((y1 + y2) / 2.0) * length
-            total += length
-        if total == 0:
-            lon, lat = line[0][:2]
-            return float(lat), float(lon)
-        return weighted_lat / total, weighted_lon / total
-
-    if gtype == "LineString":
-        return line_centroid(coords)
-
-    if gtype == "MultiLineString":
-        centroids = [line_centroid(line) for line in coords if line]
-        centroids = [c for c in centroids if c]
-        if centroids:
-            return (
-                sum(c[0] for c in centroids) / len(centroids),
-                sum(c[1] for c in centroids) / len(centroids),
-            )
-
-    if gtype == "Polygon":
-        ring = coords[0] if coords else []
-        if ring:
-            # Polygon fallback: average of vertices. The monitor primarily emits
-            # Point and endpoint-derived LineString geometries.
-            xs = [float(p[0]) for p in ring]
-            ys = [float(p[1]) for p in ring]
-            return sum(ys) / len(ys), sum(xs) / len(xs)
-
-    return None
+def _utility_aliases(company: str) -> list[str]:
+    mapping = {
+        "Florida Power & Light": ["florida power & light", "fpl"],
+        "Duke Energy Florida": ["duke energy florida", "duke"],
+        "Tampa Electric": ["tampa electric", "teco"],
+        "Orlando Utilities Commission": ["orlando utilities commission", "ouc"],
+        "Gainesville Regional Utilities": ["gainesville regional utilities", "gru"],
+        "JEA": ["jea"],
+    }
+    return mapping.get(company, [company.lower()] if company and company != MISSING_TEXT else [])
 
 
-def _format_centroid(point: tuple[float, float] | None) -> str:
-    if not point:
-        return ""
-    lat, lon = point
-    if not _valid_coordinate(lat, lon):
-        return ""
-    return f"{lat:.6f}, {lon:.6f}"
-
-
-def _candidate_score(feature: dict, station_name: str, county: str, voltage: float) -> float:
+def _candidate_score(feature: dict, station_name: str, counties: str, voltage: float, company: str) -> float:
     props = feature.get("properties") or {}
     candidate = clean_text(str(props.get("NAME") or ""))
     target = _normalize_station_name(station_name)
     name_score = SequenceMatcher(None, target.lower(), candidate.lower()).ratio() if target and candidate else 0.0
+    if name_score < 0.45:
+        return 0.0
+    total = 0.55 * name_score
+    if target.lower() == candidate.lower():
+        total += 0.08
 
-    county_score = 0.0
-    if county:
-        wanted = county.lower().replace(" county", "").strip()
-        got = clean_text(str(props.get("COUNTY") or "")).lower().replace(" county", "").strip()
-        if wanted and got and wanted == got:
-            county_score = 0.20
+    wanted_counties = {
+        clean_text(c).lower().replace(" county", "")
+        for c in (counties or "").split(";") if clean_text(c)
+    }
+    got_county = clean_text(str(props.get("COUNTY") or "")).lower().replace(" county", "")
+    if got_county and got_county in wanted_counties:
+        total += 0.20
 
-    voltage_score = 0.0
     try:
         max_volt = float(props.get("MAX_VOLT") or 0)
     except (TypeError, ValueError):
         max_volt = 0.0
     if voltage and max_volt:
         if abs(max_volt - voltage) <= 1:
-            voltage_score = 0.12
-        elif abs(max_volt - voltage) <= 50:
-            voltage_score = 0.05
+            total += 0.15
+        elif abs(max_volt - voltage) <= 25:
+            total += 0.08
 
-    return name_score + county_score + voltage_score
+    owner_text = _candidate_owner_text(props).lower()
+    aliases = _utility_aliases(company)
+    if owner_text and any(alias in owner_text for alias in aliases):
+        total += 0.10
+
+    return min(1.0, total)
 
 
 def query_hifld_substation(
@@ -1051,30 +1234,24 @@ def query_hifld_substation(
     station_name: str,
     counties: str = "",
     voltage: float = 0.0,
+    company: str = "",
 ) -> dict | None:
-    """Match a named Florida substation to the public HIFLD ArcGIS layer."""
     target = _normalize_station_name(station_name)
-    if not target or target.upper() == MISSING_TEXT:
+    cache_key = (target.lower(), clean_text(counties).lower(), float(voltage or 0), clean_text(company).lower())
+    if cache_key in _SUBSTATION_CACHE:
+        return _SUBSTATION_CACHE[cache_key]
+    if not target or target.upper() == MISSING_TEXT or not station_name_is_valid(target):
+        _SUBSTATION_CACHE[cache_key] = None
         return None
 
-    # Use the first county as a ranking hint, not a hard filter, because project
-    # descriptions may list multiple counties along the line.
-    county_hint = ""
-    if counties and counties.upper() != MISSING_TEXT:
-        county_hint = counties.split(";")[0].strip()
-
-    # Search the whole normalized name first, then individual meaningful tokens.
-    search_terms = [target]
-    tokens = [t for t in re.findall(r"[A-Za-z0-9]+", target) if len(t) >= 4]
-    search_terms.extend(tokens[:3])
-
-    features = []
-    seen_ids = set()
-    for term in search_terms:
-        where = f"STATE='FL' AND NAME LIKE '%{_arcgis_escape(term)}%'"
+    terms = [target]
+    terms.extend([t for t in re.findall(r"[A-Za-z0-9]+", target) if len(t) >= 4][:2])
+    features: list[dict] = []
+    seen: set[str] = set()
+    for term in terms:
         params = {
-            "where": where,
-            "outFields": "ID,NAME,CITY,STATE,ZIP,COUNTY,LATITUDE,LONGITUDE,MAX_VOLT,SOURCE",
+            "where": f"STATE='FL' AND NAME LIKE '%{_arcgis_escape(term)}%'",
+            "outFields": "*",
             "returnGeometry": "true",
             "outSR": "4326",
             "f": "geojson",
@@ -1085,523 +1262,1398 @@ def query_hifld_substation(
             response.raise_for_status()
             payload = response.json()
         except (requests.RequestException, ValueError) as exc:
-            logging.debug("HIFLD substation lookup failed for %s: %s", target, exc)
+            logging.debug("HIFLD lookup failed for %s: %s", target, exc)
             continue
-
         for feature in payload.get("features", []):
             props = feature.get("properties") or {}
-            fid = props.get("ID") or json.dumps(feature.get("geometry"), sort_keys=True)
-            if fid in seen_ids:
-                continue
-            seen_ids.add(fid)
-            features.append(feature)
-
+            key = str(props.get("ID") or json.dumps(feature.get("geometry"), sort_keys=True))
+            if key not in seen:
+                seen.add(key)
+                features.append(feature)
         if features:
-            # Usually the full-name query is sufficient; keep API use low.
             break
-
     if not features:
+        _SUBSTATION_CACHE[cache_key] = None
         return None
 
-    scored = [
-        (_candidate_score(feature, target, county_hint, voltage), feature)
-        for feature in features
-    ]
-    scored.sort(key=lambda pair: pair[0], reverse=True)
+    scored = [(_candidate_score(f, target, counties, voltage, company), f) for f in features]
+    scored.sort(key=lambda x: x[0], reverse=True)
     best_score, best = scored[0]
     if best_score < GIS_MATCH_THRESHOLD:
+        _SUBSTATION_CACHE[cache_key] = None
         return None
-
     best["_match_score"] = best_score
+    _SUBSTATION_CACHE[cache_key] = best
     return best
 
 
-def geocode_address(
-    session: requests.Session,
-    address: str,
-    context: str = "",
-) -> tuple[tuple[float, float] | None, str]:
-    """Geocode an address with the public U.S. Census Geocoder."""
-    address = clean_text(address or "")
-    if not address or address.upper() == MISSING_TEXT:
-        return None, ""
+def _point_from_feature(feature: dict | None) -> list[float] | None:
+    if not feature:
+        return None
+    geom = feature.get("geometry") or {}
+    if geom.get("type") == "Point" and geom.get("coordinates"):
+        return [float(geom["coordinates"][0]), float(geom["coordinates"][1])]
+    props = feature.get("properties") or {}
+    try:
+        return [float(props.get("LONGITUDE")), float(props.get("LATITUDE"))]
+    except (TypeError, ValueError):
+        return None
 
-    query = address
-    if not re.search(r"\b(?:Florida|FL)\b", query, re.I):
-        query += ", Florida"
 
-    params = {
-        "address": query,
-        "benchmark": "Public_AR_Current",
-        "format": "json",
+def _feature_name(feature: dict | None) -> str:
+    return clean_text(str(((feature or {}).get("properties") or {}).get("NAME") or ""))
+
+
+def _feature_exact_station_match(feature: dict | None, station_name: str) -> bool:
+    if not feature or not station_name:
+        return False
+    return _normalize_station_name(_feature_name(feature)).lower() == _normalize_station_name(station_name).lower()
+
+
+def _geojson_compact(geometry: dict | None) -> str:
+    return json.dumps(geometry, separators=(",", ":"), ensure_ascii=False) if geometry else ""
+
+
+def _line_weighted_center(lines: list[list[list[float]]]) -> tuple[float, float] | None:
+    weighted_lat = weighted_lon = total = 0.0
+    for coords in lines:
+        for a, b in zip(coords, coords[1:]):
+            lon1, lat1 = float(a[0]), float(a[1])
+            lon2, lat2 = float(b[0]), float(b[1])
+            length = math.hypot(lon2 - lon1, lat2 - lat1)
+            if length <= 0:
+                continue
+            weighted_lon += ((lon1 + lon2) / 2.0) * length
+            weighted_lat += ((lat1 + lat2) / 2.0) * length
+            total += length
+    if total:
+        return weighted_lat / total, weighted_lon / total
+    pts = [p for line in lines for p in line]
+    if pts:
+        return sum(float(p[1]) for p in pts) / len(pts), sum(float(p[0]) for p in pts) / len(pts)
+    return None
+
+
+def _polygon_centroid(ring: list[list[float]]) -> tuple[float, float, float] | None:
+    if not ring or len(ring) < 3:
+        return None
+    area2 = cx = cy = 0.0
+    pts = ring if ring[0] == ring[-1] else ring + [ring[0]]
+    for a, b in zip(pts, pts[1:]):
+        x1, y1 = float(a[0]), float(a[1])
+        x2, y2 = float(b[0]), float(b[1])
+        cross = x1 * y2 - x2 * y1
+        area2 += cross
+        cx += (x1 + x2) * cross
+        cy += (y1 + y2) * cross
+    if abs(area2) < 1e-12:
+        lon = sum(float(p[0]) for p in ring) / len(ring)
+        lat = sum(float(p[1]) for p in ring) / len(ring)
+        return lat, lon, 0.0
+    area = area2 / 2.0
+    lon = cx / (3.0 * area2)
+    lat = cy / (3.0 * area2)
+    return lat, lon, abs(area)
+
+
+def _geometry_centroid(geometry: dict | None) -> tuple[float, float] | None:
+    if not geometry:
+        return None
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if gtype == "Point" and coords:
+        return float(coords[1]), float(coords[0])
+    if gtype == "MultiPoint" and coords:
+        return sum(float(p[1]) for p in coords) / len(coords), sum(float(p[0]) for p in coords) / len(coords)
+    if gtype == "LineString" and coords:
+        return _line_weighted_center([coords])
+    if gtype == "MultiLineString" and coords:
+        return _line_weighted_center(coords)
+    if gtype == "Polygon" and coords:
+        result = _polygon_centroid(coords[0])
+        return (result[0], result[1]) if result else None
+    if gtype == "MultiPolygon" and coords:
+        weighted_lat = weighted_lon = total_area = 0.0
+        fallback = []
+        for poly in coords:
+            if not poly:
+                continue
+            result = _polygon_centroid(poly[0])
+            if not result:
+                continue
+            lat, lon, area = result
+            fallback.append((lat, lon))
+            w = area or 1.0
+            weighted_lat += lat * w
+            weighted_lon += lon * w
+            total_area += w
+        if total_area:
+            return weighted_lat / total_area, weighted_lon / total_area
+        if fallback:
+            return sum(x[0] for x in fallback) / len(fallback), sum(x[1] for x in fallback) / len(fallback)
+    if gtype == "GeometryCollection":
+        centers = [_geometry_centroid(g) for g in geometry.get("geometries", [])]
+        centers = [c for c in centers if c]
+        if centers:
+            return sum(c[0] for c in centers) / len(centers), sum(c[1] for c in centers) / len(centers)
+    return None
+
+
+def _format_centroid(point: tuple[float, float] | None) -> str:
+    if not point:
+        return ""
+    lat, lon = point
+    if not (24.0 <= lat <= 31.5 and -88.0 <= lon <= -79.5):
+        return ""
+    return f"{lat:.6f}, {lon:.6f}"
+
+
+def _haversine_miles(a: list[float], b: list[float]) -> float:
+    lon1, lat1 = map(math.radians, [float(a[0]), float(a[1])])
+    lon2, lat2 = map(math.radians, [float(b[0]), float(b[1])])
+    dlon, dlat = lon2 - lon1, lat2 - lat1
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 3958.7613 * 2 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def _line_endpoints(geometry: dict | None) -> tuple[list[float] | None, list[float] | None]:
+    if not geometry:
+        return None, None
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates") or []
+    if gtype == "LineString" and len(coords) >= 2:
+        return list(coords[0]), list(coords[-1])
+    if gtype == "MultiLineString" and coords:
+        nonempty = [line for line in coords if len(line) >= 2]
+        if nonempty:
+            return list(nonempty[0][0]), list(nonempty[-1][-1])
+    return None, None
+
+
+def extract_planned_station_names(text: str) -> list[str]:
+    names = []
+    pattern = re.compile(
+        r"\b(?:new|planned|future)\s+([A-Z][A-Za-z0-9&'(). -]{1,45}?)\s+"
+        r"(?:Substation|Switchyard|Switching Station)\b",
+        re.I,
+    )
+    for match in pattern.finditer(text or ""):
+        name = clean_text(match.group(1)).strip(" -,:;.")
+        if station_name_is_valid(name) and name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    return names
+
+
+def extract_existing_station_names(text: str) -> list[str]:
+    names = []
+    patterns = [
+        re.compile(r"\bexisting\s+([A-Z][A-Za-z0-9&'(). -]{1,45}?)\s+(?:Substation|Switchyard)\b", re.I),
+        re.compile(r"\btransmission\s+bus\s+at\s+([A-Z][A-Za-z0-9&'(). -]{1,45}?)\s+(?:Substation|Switchyard)\b", re.I),
+        re.compile(r"\bconnected\s+to\s+the\s+transmission\s+bus\s+at\s+([A-Z][A-Za-z0-9&'(). -]{1,45}?)\s+(?:Substation|Switchyard)\b", re.I),
+    ]
+    for pattern in patterns:
+        for match in pattern.finditer(text or ""):
+            name = clean_text(match.group(1)).strip(" -,:;.")
+            if station_name_is_valid(name) and name.lower() not in {n.lower() for n in names}:
+                names.append(name)
+    return names
+
+
+NAMED_LINE_PATTERNS = [
+    re.compile(
+        r"(?i:bifurcat(?:e|ing)|loop(?:ing)?|extending|extend|from)\s+"
+        r"(?i:(?:the\s+)?(?:adjacent\s+)?(?:new\s+)?(?:FPL\s+)?)"
+        r"([A-Z][A-Za-z0-9 &'().]{0,35}?)\s*[-–]\s*"
+        r"([A-Z][A-Za-z0-9 &'().]{0,35}?)\s+(\d{2,3})\s*(?i:kV)\s+(?i:(?:transmission\s+)?line)\b"
+    ),
+    re.compile(
+        r"\b([A-Z][A-Za-z0-9&'().]{1,22}(?:\s+[A-Z][A-Za-z0-9&'().]{1,22}){0,3})\s*[-–]\s*"
+        r"([A-Z][A-Za-z0-9&'().]{1,22}(?:\s+[A-Z][A-Za-z0-9&'().]{1,22}){0,3})\s+"
+        r"(\d{2,3})\s*(?i:kV)\s+(?i:(?:transmission\s+)?line)\b"
+    ),
+]
+
+
+def _clean_named_line_endpoint(value: str) -> str:
+    value = clean_text(value).strip(" -,:;.")
+    value = re.sub(r"^(?:FPL|DEF|Duke Energy Florida)\s+", "", value, flags=re.I)
+    navigation_words = {
+        "search", "office", "coordination", "division", "home", "water",
+        "plant", "project", "projects", "program", "content", "menu",
     }
+    tokens = value.split()
+    if any(t.lower() in navigation_words for t in tokens[:-1]):
+        return ""
+    return value if station_name_is_valid(value) else ""
+
+
+def extract_named_transmission_lines(text: str) -> list[tuple[str, str, float]]:
+    out = []
+    seen = set()
+    for pattern in NAMED_LINE_PATTERNS:
+        for match in pattern.finditer(text or ""):
+            a = _clean_named_line_endpoint(match.group(1))
+            b = _clean_named_line_endpoint(match.group(2))
+            voltage = float(match.group(3))
+            if a and b and a.lower() != b.lower():
+                key = tuple(sorted([a.lower(), b.lower()])) + (voltage,)
+                if key not in seen:
+                    seen.add(key)
+                    out.append((a, b, voltage))
+    return out
+
+
+def _arcgis_geojson(session: requests.Session, url: str, params: dict) -> dict | None:
+    try:
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict) and payload.get("error"):
+            return None
+        return payload if isinstance(payload, dict) else None
+    except (requests.RequestException, ValueError):
+        return None
+
+
+
+def _flatten_line_parts(geometry: dict | None) -> list[list[list[float]]]:
+    if not geometry:
+        return []
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates") or []
+    if gtype == "LineString":
+        return [coords] if len(coords) >= 2 else []
+    if gtype == "MultiLineString":
+        return [line for line in coords if len(line) >= 2]
+    return []
+
+
+def _point_segment_distance_miles(point: list[float], a: list[float], b: list[float]) -> float:
+    '''Approximate shortest point-to-segment distance in miles for Florida-scale searches.'''
+    lon0, lat0 = float(point[0]), float(point[1])
+    mean_lat = math.radians((float(a[1]) + float(b[1]) + lat0) / 3.0)
+    xscale = 69.172 * max(0.2, math.cos(mean_lat))
+    yscale = 69.0
+    ax, ay = (float(a[0]) - lon0) * xscale, (float(a[1]) - lat0) * yscale
+    bx, by = (float(b[0]) - lon0) * xscale, (float(b[1]) - lat0) * yscale
+    vx, vy = bx - ax, by - ay
+    denom = vx * vx + vy * vy
+    if denom <= 1e-12:
+        return math.hypot(ax, ay)
+    t = max(0.0, min(1.0, -(ax * vx + ay * vy) / denom))
+    qx, qy = ax + t * vx, ay + t * vy
+    return math.hypot(qx, qy)
+
+
+def _point_to_line_distance_miles(point: list[float], geometry: dict | None) -> float:
+    best = float("inf")
+    for line in _flatten_line_parts(geometry):
+        for a, b in zip(line, line[1:]):
+            best = min(best, _point_segment_distance_miles(point, a, b))
+    return best
+
+
+def _feature_identity(feature: dict | None) -> tuple:
+    if not feature:
+        return ()
+    props = feature.get("properties") or {}
+    for key in ("GlobalID", "GLOBALID", "OBJECTID", "ID", "OSM_ID"):
+        value = props.get(key)
+        if value not in (None, ""):
+            return (str(key).upper(), str(value))
+    point = _point_from_feature(feature)
+    if point:
+        return ("POINT", round(point[0], 6), round(point[1], 6))
+    return ("NAME", _normalize_station_name(_feature_name(feature)).lower())
+
+
+def _overpass_json(session: requests.Session, query: str) -> dict | None:
+    for url in OVERPASS_API_URLS:
+        try:
+            response = session.post(
+                url,
+                data={"data": query},
+                timeout=max(REQUEST_TIMEOUT, 45),
+                headers={"User-Agent": USER_AGENT},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, dict):
+                return payload
+        except (requests.RequestException, ValueError):
+            continue
+    return None
+
+
+def _osm_regex(value: str) -> str:
+    value = clean_text(value)
+    escaped = re.escape(value)
+    return (
+        escaped
+        .replace(r"\ ", " ")
+        .replace(r"\&", "&")
+        .replace(r"\'", "'")
+        .replace(r'\"', r'\\\"')
+    )
+
+
+def _osm_element_geometry(element: dict) -> dict | None:
+    etype = element.get("type")
+    if etype == "node" and "lon" in element and "lat" in element:
+        return {"type": "Point", "coordinates": [float(element["lon"]), float(element["lat"])]}
+    geometry = element.get("geometry") or []
+    coords = []
+    for p in geometry:
+        if "lon" in p and "lat" in p:
+            coords.append([float(p["lon"]), float(p["lat"])])
+    if len(coords) >= 2:
+        return {"type": "LineString", "coordinates": coords}
+    center = element.get("center") or {}
+    if "lon" in center and "lat" in center:
+        return {"type": "Point", "coordinates": [float(center["lon"]), float(center["lat"])]}
+    if len(coords) == 1:
+        return {"type": "Point", "coordinates": coords[0]}
+    return None
+
+
+def _osm_feature(element: dict) -> dict | None:
+    geometry = _osm_element_geometry(element)
+    if not geometry:
+        return None
+    tags = element.get("tags") or {}
+    props = {
+        "NAME": clean_text(str(tags.get("name") or tags.get("ref") or "")),
+        "OWNER": clean_text(str(tags.get("operator") or tags.get("owner") or "")),
+        "VOLTAGE": clean_text(str(tags.get("voltage") or "")),
+        "OSM_ID": f"{element.get('type')}:{element.get('id')}",
+        "OSM_POWER": clean_text(str(tags.get("power") or "")),
+    }
+    return {"type": "Feature", "properties": props, "geometry": geometry}
+
+
+def _osm_voltage_kv(value) -> float:
+    text = clean_text(str(value or ""))
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if not match:
+        return 0.0
+    v = float(match.group(0))
+    return v / 1000.0 if v > 2000 else v
+
+
+
+def _osm_operator_pattern(company: str) -> str:
+    aliases = [a for a in _utility_aliases(company) if a]
+    if not aliases:
+        return ""
+    return "|".join(_osm_regex(a) for a in aliases)
+
+
+def _load_osm_utility_substations(session: requests.Session, company: str) -> list[dict]:
+    key = clean_text(company).lower()
+    if key in _OSM_UTILITY_SUBSTATIONS:
+        return _OSM_UTILITY_SUBSTATIONS[key]
+    operator_pattern = _osm_operator_pattern(company)
+    if not operator_pattern:
+        _OSM_UTILITY_SUBSTATIONS[key] = []
+        return []
+    s, w, n, e = FLORIDA_BBOX
+    query = f'''[out:json][timeout:60];
+(
+  nwr["power"="substation"]["operator"~"{operator_pattern}",i]({s},{w},{n},{e});
+);
+out center tags geom 2500;'''
+    payload = _overpass_json(session, query) or {}
+    features = []
+    for element in payload.get("elements", []):
+        feature = _osm_feature(element)
+        if not feature:
+            continue
+        if feature.get("geometry", {}).get("type") != "Point":
+            center = _geometry_centroid(feature.get("geometry"))
+            if center:
+                feature["geometry"] = {"type": "Point", "coordinates": [center[1], center[0]]}
+        if _point_from_feature(feature):
+            features.append(feature)
+    _OSM_UTILITY_SUBSTATIONS[key] = features
+    return features
+
+
+def _score_osm_station_feature(feature: dict, target: str, voltage: float, company: str) -> float:
+    props = feature.get("properties") or {}
+    candidate = _normalize_station_name(str(props.get("NAME") or ""))
+    if not candidate:
+        return 0.0
+    name_score = SequenceMatcher(None, target.lower(), candidate.lower()).ratio()
+    if name_score < 0.72:
+        return 0.0
+    score = 0.76 * name_score
+    owner = clean_text(str(props.get("OWNER") or "")).lower()
+    if owner and any(alias in owner for alias in _utility_aliases(company)):
+        score += 0.14
+    got_v = _osm_voltage_kv(props.get("VOLTAGE"))
+    if voltage and got_v:
+        if abs(got_v - voltage) <= 1:
+            score += 0.10
+        elif abs(got_v - voltage) <= 25:
+            score += 0.05
+    return min(1.0, score)
+
+
+def query_osm_substation(
+    session: requests.Session,
+    station_name: str,
+    voltage: float = 0.0,
+    company: str = "",
+) -> dict | None:
+    '''Resolve a substation from OSM using utility-wide registry first.'''
+    target = _normalize_station_name(station_name)
+    if not target:
+        return None
+    cache_key = (target.lower(), float(voltage or 0), clean_text(company).lower())
+    if cache_key in _OSM_STATION_CACHE:
+        return _OSM_STATION_CACHE[cache_key]
+
+    candidates = []
+    for feature in _load_osm_utility_substations(session, company):
+        score = _score_osm_station_feature(feature, target, voltage, company)
+        if score > 0:
+            feature["_match_score"] = score
+            candidates.append((score, feature))
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    if candidates and candidates[0][0] >= 0.68:
+        result = candidates[0][1]
+        _OSM_STATION_CACHE[cache_key] = result
+        return result
+
+    s, w, n, e = FLORIDA_BBOX
+    pattern = _osm_regex(target)
+    query = f'''[out:json][timeout:35];
+(
+  nwr["power"="substation"]["name"~"{pattern}",i]({s},{w},{n},{e});
+);
+out center tags geom 80;'''
+    payload = _overpass_json(session, query) or {}
+    for element in payload.get("elements", []):
+        feature = _osm_feature(element)
+        if not feature:
+            continue
+        if feature.get("geometry", {}).get("type") != "Point":
+            center = _geometry_centroid(feature.get("geometry"))
+            if center:
+                feature["geometry"] = {"type": "Point", "coordinates": [center[1], center[0]]}
+        score = _score_osm_station_feature(feature, target, voltage, company)
+        if score > 0:
+            feature["_match_score"] = score
+            candidates.append((score, feature))
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    result = candidates[0][1] if candidates and candidates[0][0] >= 0.68 else None
+    _OSM_STATION_CACHE[cache_key] = result
+    return result
+
+def _resolve_station_asset(
+    session: requests.Session,
+    station_name: str,
+    counties: str,
+    voltage: float,
+    company: str,
+) -> tuple[dict | None, str, str]:
+    feature = query_hifld_substation(session, station_name, counties, voltage, company)
+    if feature and _point_from_feature(feature):
+        return feature, HIFLD_SUBSTATIONS_LAYER_URL, "HIFLD"
+    feature = query_osm_substation(session, station_name, voltage, company)
+    if feature and _point_from_feature(feature):
+        return feature, OSM_SOURCE_LABEL, "OSM"
+    return None, "", ""
+
+
+def query_osm_transmission_line_between(
+    session: requests.Session,
+    point_a: list[float],
+    point_b: list[float],
+    voltage: float = 0.0,
+    company: str = "",
+) -> dict | None:
+    if not point_a or not point_b:
+        return None
+    key_points = tuple(round(x, 4) for x in point_a + point_b)
+    cache_key = (key_points, float(voltage or 0), clean_text(company).lower())
+    if cache_key in _OSM_LINE_CACHE:
+        return _OSM_LINE_CACHE[cache_key]
+    pad = 0.10
+    south, north = min(point_a[1], point_b[1]) - pad, max(point_a[1], point_b[1]) + pad
+    west, east = min(point_a[0], point_b[0]) - pad, max(point_a[0], point_b[0]) + pad
+    query = f'''[out:json][timeout:45];
+(
+  way["power"="line"]({south},{west},{north},{east});
+  relation["power"="line"]({south},{west},{north},{east});
+);
+out tags geom 1200;'''
+    payload = _overpass_json(session, query) or {}
+    scored = []
+    aliases = _utility_aliases(company)
+    for element in payload.get("elements", []):
+        feature = _osm_feature(element)
+        if not feature or not _flatten_line_parts(feature.get("geometry")):
+            continue
+        d1 = _point_to_line_distance_miles(point_a, feature.get("geometry"))
+        d2 = _point_to_line_distance_miles(point_b, feature.get("geometry"))
+        if max(d1, d2) > 8.0:
+            continue
+        proximity = max(0.0, 1.0 - (d1 + d2) / 16.0)
+        props = feature.get("properties") or {}
+        score = 0.78 * proximity
+        got_v = _osm_voltage_kv(props.get("VOLTAGE"))
+        if voltage and got_v:
+            if abs(got_v - voltage) <= 1:
+                score += 0.17
+            elif abs(got_v - voltage) <= 25:
+                score += 0.08
+        owner = clean_text(str(props.get("OWNER") or "")).lower()
+        if owner and any(alias in owner for alias in aliases):
+            score += 0.05
+        feature["_match_score"] = min(1.0, score)
+        scored.append((feature["_match_score"], feature))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    result = scored[0][1] if scored and scored[0][0] >= 0.56 else None
+    _OSM_LINE_CACHE[cache_key] = result
+    return result
+
+
+def _is_administrative_address(record: ProjectRecord, address: str) -> bool:
+    address = clean_text(address)
+    excerpt = "" if record.source_excerpt == MISSING_TEXT else record.source_excerpt
+    if not address:
+        return True
+    if ADMIN_ADDRESS_RE.search(address):
+        return True
+    if "florida dep" in record.source_name.lower() or "floridadep.gov" in record.source_url.lower():
+        if "tallahassee" in address.lower() and re.search(
+            r"Florida Department of Environmental Protection|Siting Coordination Office|Commonwealth",
+            excerpt, re.I
+        ):
+            return True
+    return False
+
+def _line_feature_score(feature: dict, a: str, b: str, voltage: float, company: str) -> float:
+    props = feature.get("properties") or {}
+    sub1 = clean_text(str(props.get("SUB_1") or ""))
+    sub2 = clean_text(str(props.get("SUB_2") or ""))
+    target_a, target_b = _normalize_station_name(a), _normalize_station_name(b)
+    s11 = SequenceMatcher(None, target_a.lower(), _normalize_station_name(sub1).lower()).ratio() if sub1 else 0
+    s22 = SequenceMatcher(None, target_b.lower(), _normalize_station_name(sub2).lower()).ratio() if sub2 else 0
+    s12 = SequenceMatcher(None, target_a.lower(), _normalize_station_name(sub2).lower()).ratio() if sub2 else 0
+    s21 = SequenceMatcher(None, target_b.lower(), _normalize_station_name(sub1).lower()).ratio() if sub1 else 0
+    endpoint_score = max((s11 + s22) / 2.0, (s12 + s21) / 2.0)
+    name = clean_text(str(props.get("NAME") or "")).lower()
+    if endpoint_score < 0.40 and target_a.lower() not in name and target_b.lower() not in name:
+        return 0.0
+    score = 0.70 * endpoint_score
+    try:
+        got_v = float(props.get("VOLTAGE") or 0)
+    except (TypeError, ValueError):
+        got_v = 0.0
+    if voltage and got_v:
+        if abs(got_v - voltage) <= 1:
+            score += 0.20
+        elif abs(got_v - voltage) <= 25:
+            score += 0.10
+    owner = clean_text(str(props.get("OWNER") or "")).lower()
+    if owner and any(alias in owner for alias in _utility_aliases(company)):
+        score += 0.10
+    return min(1.0, score)
+
+
+def _spatial_line_score(feature: dict, p1: list[float], p2: list[float], voltage: float, company: str) -> float:
+    geometry = feature.get("geometry")
+    if not _flatten_line_parts(geometry):
+        return 0.0
+    d1 = _point_to_line_distance_miles(p1, geometry)
+    d2 = _point_to_line_distance_miles(p2, geometry)
+    if max(d1, d2) > 10.0:
+        return 0.0
+    proximity = max(0.0, 1.0 - (d1 + d2) / 20.0)
+    score = 0.78 * proximity
+    props = feature.get("properties") or {}
+    try:
+        got_v = float(props.get("VOLTAGE") or 0)
+    except (TypeError, ValueError):
+        got_v = 0.0
+    if voltage and got_v:
+        if abs(got_v - voltage) <= 1:
+            score += 0.17
+        elif abs(got_v - voltage) <= 25:
+            score += 0.08
+    owner = clean_text(str(props.get("OWNER") or "")).lower()
+    if owner and any(alias in owner for alias in _utility_aliases(company)):
+        score += 0.05
+    return min(1.0, score)
+
+def query_hifld_transmission_line(
+    session: requests.Session,
+    station_a: str,
+    station_b: str,
+    voltage: float = 0.0,
+    company: str = "",
+    counties: str = "",
+) -> dict | None:
+    '''Resolve a named A-B transmission line using spatial matching first.'''
+    a, b = _normalize_station_name(station_a), _normalize_station_name(station_b)
+    if not a or not b or a.lower() == b.lower():
+        return None
+    cache_key = (a.lower(), b.lower(), float(voltage or 0), clean_text(company).lower(), clean_text(counties).lower())
+    reverse_key = (b.lower(), a.lower(), float(voltage or 0), clean_text(company).lower(), clean_text(counties).lower())
+    if cache_key in _LINE_CACHE:
+        return _LINE_CACHE[cache_key]
+    if reverse_key in _LINE_CACHE:
+        return _LINE_CACHE[reverse_key]
+
+    fa, _, _ = _resolve_station_asset(session, a, counties, voltage, company)
+    fb, _, _ = _resolve_station_asset(session, b, counties, voltage, company)
+    p1, p2 = _point_from_feature(fa), _point_from_feature(fb)
+
+    if p1 and p2 and _haversine_miles(p1, p2) > 0.05:
+        pad = 0.10
+        xmin, xmax = min(p1[0], p2[0]) - pad, max(p1[0], p2[0]) + pad
+        ymin, ymax = min(p1[1], p2[1]) - pad, max(p1[1], p2[1]) + pad
+        spatial_params = {
+            "where": "1=1",
+            "geometry": f"{xmin},{ymin},{xmax},{ymax}",
+            "geometryType": "esriGeometryEnvelope",
+            "inSR": "4326",
+            "spatialRel": "esriSpatialRelIntersects",
+            "outFields": "*",
+            "returnGeometry": "true",
+            "outSR": "4326",
+            "f": "geojson",
+            "resultRecordCount": 1000,
+        }
+        payload = _arcgis_geojson(session, HIFLD_TRANSMISSION_LINES_QUERY_URL, spatial_params) or {}
+        scored = [(_spatial_line_score(f, p1, p2, voltage, company), f)
+                  for f in payload.get("features", [])]
+        scored = [x for x in scored if x[0] > 0]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        if scored and scored[0][0] >= 0.56:
+            best = scored[0][1]
+            best["_match_score"] = scored[0][0]
+            best["_source_url"] = HIFLD_TRANSMISSION_LINES_LAYER_URL
+            _LINE_CACHE[cache_key] = best
+            return best
+
+    ea, eb = _arcgis_escape(a.upper()), _arcgis_escape(b.upper())
+    where = (
+        f"((SUB_1 LIKE '%{ea}%' AND SUB_2 LIKE '%{eb}%') OR "
+        f"(SUB_1 LIKE '%{eb}%' AND SUB_2 LIKE '%{ea}%'))"
+    )
+    params = {
+        "where": where,
+        "outFields": "*",
+        "returnGeometry": "true",
+        "outSR": "4326",
+        "f": "geojson",
+        "resultRecordCount": 100,
+    }
+    payload = _arcgis_geojson(session, HIFLD_TRANSMISSION_LINES_QUERY_URL, params) or {}
+    scored = [(_line_feature_score(f, a, b, voltage, company), f) for f in payload.get("features", [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if scored and scored[0][0] >= 0.58:
+        best = scored[0][1]
+        best["_match_score"] = scored[0][0]
+        best["_source_url"] = HIFLD_TRANSMISSION_LINES_LAYER_URL
+        _LINE_CACHE[cache_key] = best
+        return best
+
+    _LINE_CACHE[cache_key] = None
+    return None
+
+def _discover_official_links(session: requests.Session, source_url: str) -> tuple[list[str], list[str]]:
+    if source_url in _LINK_DISCOVERY_CACHE:
+        return _LINK_DISCOVERY_CACHE[source_url]
+    if PDF_RE.search(source_url):
+        map_links = [source_url] if re.search(r"corridor|route|map|preferred", source_url, re.I) else []
+        result = ([], map_links)
+        _LINK_DISCOVERY_CACHE[source_url] = result
+        return result
+    response = fetch(session, source_url)
+    if not response or "html" not in response.headers.get("content-type", "").lower():
+        result = ([], [])
+        _LINK_DISCOVERY_CACHE[source_url] = result
+        return result
+    soup = BeautifulSoup(response.text, "html.parser")
+    gis_links, map_links = [], []
+    candidates = []
+    for tag in soup.find_all(["a", "iframe", "img"]):
+        raw = tag.get("href") or tag.get("src")
+        if not raw:
+            continue
+        href = urljoin(source_url, raw.strip()).split("#")[0]
+        label = clean_text(tag.get_text(" ", strip=True) if tag.name == "a" else (tag.get("alt") or tag.get("title") or ""))
+        candidates.append((label, href))
+    # Also catch raw ArcGIS REST URLs embedded in scripts/data attributes.
+    for raw in re.findall(r"https?://[^\s\"'<>]+", response.text):
+        if re.search(r"FeatureServer|MapServer|arcgis\.com/(?:home/item|apps/|sharing/rest/content/items/)", raw, re.I):
+            candidates.append(("", raw.replace("&amp;", "&")))
+    for label, href in candidates:
+        combined = f"{label} {href}"
+        if re.search(r"FeatureServer|MapServer|\.geojson(?:$|\?)|\.kml(?:$|\?)|\.kmz(?:$|\?)", href, re.I):
+            if href not in gis_links:
+                gis_links.append(href)
+        elif re.search(r"arcgis\.com/(?:home/item|apps/|sharing/rest/content/items/)", href, re.I):
+            if href not in gis_links:
+                gis_links.append(href)
+        if re.search(r"corridor|preferred\s+corridor|route\s+map|project\s+map|map", combined, re.I) and re.search(r"\.pdf|\.png|\.jpe?g", href, re.I):
+            if href not in map_links:
+                map_links.append(href)
+    result = (gis_links[:12], map_links[:12])
+    _LINK_DISCOVERY_CACHE[source_url] = result
+    return result
+
+
+def _extract_arcgis_item_id(url: str) -> str:
+    match = re.search(r"(?:items/|\bid=)([0-9a-f]{32})", url, re.I)
+    return match.group(1) if match else ""
+
+
+def _resolve_arcgis_item_url(session: requests.Session, url: str) -> str:
+    item_id = _extract_arcgis_item_id(url)
+    if not item_id:
+        return url
+    item_url = f"https://www.arcgis.com/sharing/rest/content/items/{item_id}"
+    try:
+        response = session.get(item_url, params={"f": "json"}, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        payload = response.json()
+        return clean_text(str(payload.get("url") or url))
+    except (requests.RequestException, ValueError):
+        return url
+
+
+def _kml_geometry(text: str) -> dict | None:
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return None
+    coords_nodes = root.findall(".//{*}coordinates")
+    paths = []
+    for node in coords_nodes:
+        pts = []
+        for chunk in (node.text or "").replace("\n", " ").split():
+            parts = chunk.split(",")
+            if len(parts) >= 2:
+                try:
+                    lon, lat = float(parts[0]), float(parts[1])
+                except ValueError:
+                    continue
+                if 24 <= lat <= 31.5 and -88 <= lon <= -79.5:
+                    pts.append([lon, lat])
+        if len(pts) >= 2:
+            paths.append(pts)
+        elif len(pts) == 1:
+            return {"type": "Point", "coordinates": pts[0]}
+    if len(paths) == 1:
+        return {"type": "LineString", "coordinates": paths[0]}
+    if len(paths) > 1:
+        return {"type": "MultiLineString", "coordinates": paths}
+    return None
+
+
+def _official_feature_score(feature: dict, record: ProjectRecord) -> float:
+    props = feature.get("properties") or {}
+    hay = normalize_name(" ".join(str(v) for v in props.values() if v is not None))
+    name_tokens = [t for t in normalize_name(record.project_name).split() if len(t) >= 5 and t not in {"transmission", "project", "substation", "energy", "center"}]
+    score = sum(1.0 for t in name_tokens[:8] if t in hay)
+    for station in [record.starting_substation, record.ending_substation]:
+        st = normalize_name(station)
+        if st and st != "na" and st in hay:
+            score += 2.0
+    case = normalize_name(record.regulatory_case_number)
+    if case and case != "na" and case in hay:
+        score += 3.0
+    return score
+
+
+def _geometry_from_geojson_payload(payload: dict, record: ProjectRecord) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("type") in {"Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"}:
+        return payload
+    features = payload.get("features") if payload.get("type") == "FeatureCollection" else None
+    if not features and payload.get("type") == "Feature":
+        return payload.get("geometry")
+    if not features:
+        return None
+    usable = [f for f in features if f.get("geometry")]
+    if len(usable) == 1:
+        return usable[0].get("geometry")
+    scored = [(_official_feature_score(f, record), f) for f in usable]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if scored and scored[0][0] >= 2.0:
+        return scored[0][1].get("geometry")
+    return None
+
+
+def _fetch_official_geometry(session: requests.Session, link: str, record: ProjectRecord) -> dict | None:
+    link = _resolve_arcgis_item_url(session, link)
+    lower = link.lower().split("?")[0]
+    try:
+        if lower.endswith(".geojson"):
+            response = session.get(link, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            return _geometry_from_geojson_payload(response.json(), record)
+        if lower.endswith(".kml"):
+            response = session.get(link, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            return _kml_geometry(response.text)
+        if lower.endswith(".kmz"):
+            response = session.get(link, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+                names = [n for n in zf.namelist() if n.lower().endswith(".kml")]
+                if names:
+                    return _kml_geometry(zf.read(names[0]).decode("utf-8", errors="ignore"))
+        if re.search(r"/(?:FeatureServer|MapServer)/\d+/?$", link, re.I):
+            query_url = link.rstrip("/") + "/query"
+            payload = _arcgis_geojson(session, query_url, {
+                "where": "1=1", "outFields": "*", "returnGeometry": "true",
+                "outSR": "4326", "f": "geojson", "resultRecordCount": 2000,
+            })
+            return _geometry_from_geojson_payload(payload or {}, record)
+    except (requests.RequestException, ValueError, zipfile.BadZipFile):
+        return None
+    return None
+
+
+def _official_map_geometry(session: requests.Session, map_url: str) -> dict | None:
+    if not PDF_RE.search(map_url):
+        return None
+    response = fetch(session, map_url)
+    if not response:
+        return None
+    texts = [d.text for d in pdf_to_documents(response.content, map_url)]
+    pairs = []
+    for text in texts:
+        for match in COORD_PAIR_RE.finditer(text or ""):
+            lat = float(match.group("lat")); lon = float(match.group("lon"))
+            if match.group("lat_hemi") and match.group("lat_hemi").upper() == "S": lat = -abs(lat)
+            if match.group("lon_hemi") and match.group("lon_hemi").upper() == "W": lon = -abs(lon)
+            if 24 <= lat <= 31.5 and -88 <= lon <= -79.5 and [lon, lat] not in pairs:
+                pairs.append([lon, lat])
+    if len(pairs) >= 2:
+        return {"type": "LineString", "coordinates": pairs}
+    if len(pairs) == 1:
+        return {"type": "Point", "coordinates": pairs[0]}
+    return None
+
+
+def geocode_address(session: requests.Session, address: str) -> tuple[tuple[float, float] | None, str]:
+    address = clean_text(address)
+    if not address or address == MISSING_TEXT or BAD_ADDRESS_RE.search(address):
+        return None, ""
+    query = address if re.search(r"\b(?:Florida|FL)\b", address, re.I) else address + ", Florida"
+    params = {"address": query, "benchmark": "Public_AR_Current", "format": "json"}
     try:
         response = session.get(CENSUS_GEOCODER_URL, params=params, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        payload = response.json()
-        matches = payload.get("result", {}).get("addressMatches", [])
-    except (requests.RequestException, ValueError) as exc:
-        logging.debug("Address geocode failed for %s: %s", query, exc)
+        matches = response.json().get("result", {}).get("addressMatches", [])
+    except (requests.RequestException, ValueError):
         return None, ""
-
     if not matches:
         return None, ""
-
-    match = matches[0]
-    coords = match.get("coordinates") or {}
+    coords = matches[0].get("coordinates") or {}
     try:
-        lon = float(coords.get("x"))
-        lat = float(coords.get("y"))
+        lon, lat = float(coords.get("x")), float(coords.get("y"))
     except (TypeError, ValueError):
         return None, ""
-
-    if not _in_florida(lat, lon):
+    if not (24.0 <= lat <= 31.5 and -88.0 <= lon <= -79.5):
         return None, ""
+    return (lat, lon), clean_text(str(matches[0].get("matchedAddress") or query))
 
-    matched_address = clean_text(str(match.get("matchedAddress") or query))
-    return (lat, lon), matched_address
+
+def detect_cities(text: str) -> list[str]:
+    out = []
+    for match in re.finditer(r"\bCity of\s+([A-Z][A-Za-z .'-]{2,40}?)(?=\s+(?:and|in|within|County)\b|[,;.]|$)", text or ""):
+        city = clean_text(match.group(1))
+        if city and city.lower() not in {x.lower() for x in out}:
+            out.append(city)
+    return out
+
+
+def _tiger_centroid(session: requests.Session, kind: str, name: str) -> tuple[float, float] | None:
+    key = (kind, clean_text(name).lower())
+    if key in _TIGER_CACHE:
+        return _TIGER_CACHE[key]
+    if kind == "county":
+        clean_name = re.sub(r"\s+County$", "", clean_text(name), flags=re.I)
+        url = TIGER_COUNTY_QUERY_URL
+        where = f"STATE='12' AND NAME='{_arcgis_escape(clean_name)}'"
+    else:
+        clean_name = clean_text(name)
+        url = TIGER_PLACE_QUERY_URL
+        where = f"GEOID LIKE '12%' AND BASENAME='{_arcgis_escape(clean_name)}'"
+    payload = _arcgis_geojson(session, url, {
+        "where": where, "outFields": "*", "returnGeometry": "true",
+        "outSR": "4326", "f": "geojson", "resultRecordCount": 20,
+    }) or {}
+    features = payload.get("features", [])
+    point = _geometry_centroid(features[0].get("geometry")) if features else None
+    _TIGER_CACHE[key] = point
+    return point
+
+
+def _set_gis_location(record: ProjectRecord, geometry: dict, method: str, source: str,
+                      confidence: str, spatial_role: str, evidence: str) -> ProjectRecord:
+    record.gis = _geojson_compact(geometry)
+    record.centroid = _format_centroid(_geometry_centroid(geometry)) or MISSING_TEXT
+    record.location_method = method
+    record.gis_source = source
+    record.location_confidence = confidence
+    record.spatial_role = spatial_role
+    record.location_evidence = missing_text(evidence)
+    return record
 
 
 def enrich_record_with_location(session: requests.Session, record: ProjectRecord) -> ProjectRecord:
-    """GIS-first location enrichment, with address geocoding only as fallback."""
-    start_name = "" if record.starting_substation == MISSING_TEXT else record.starting_substation
-    end_name = "" if record.ending_substation == MISSING_TEXT else record.ending_substation
+    '''Apply the v7.1 spatial hierarchy.
+
+    Discovery order follows the requested hierarchy, but Step 3 endpoint candidates
+    are collected rather than returned immediately so a higher-information Step 4
+    named transmission-line geometry can supersede a single-point anchor.
+    '''
+    excerpt = "" if record.source_excerpt == MISSING_TEXT else record.source_excerpt
     counties = "" if record.counties_crossed == MISSING_TEXT else record.counties_crossed
+    company = "" if record.planning_company == MISSING_TEXT else record.planning_company
+    start = "" if record.starting_substation == MISSING_TEXT else record.starting_substation
+    end = "" if record.ending_substation == MISSING_TEXT else record.ending_substation
+    discovered_gis, discovered_maps = _discover_official_links(session, record.source_url)
 
-    start_feature = query_hifld_substation(
-        session, start_name, counties, record.voltage_kv
-    ) if start_name else None
-    end_feature = query_hifld_substation(
-        session, end_name, counties, record.voltage_kv
-    ) if end_name else None
-
-    geometry = None
-    matched_names = []
-    scores = []
-
-    def point_from(feature):
-        if not feature:
-            return None
-        geom = feature.get("geometry") or {}
-        if geom.get("type") == "Point" and geom.get("coordinates"):
-            return [float(geom["coordinates"][0]), float(geom["coordinates"][1])]
-        props = feature.get("properties") or {}
-        try:
-            lon = float(props.get("LONGITUDE"))
-            lat = float(props.get("LATITUDE"))
-            return [lon, lat]
-        except (TypeError, ValueError):
-            return None
-
-    start_point = point_from(start_feature)
-    end_point = point_from(end_feature)
-
-    for feature in (start_feature, end_feature):
-        if feature:
-            props = feature.get("properties") or {}
-            matched_names.append(clean_text(str(props.get("NAME") or "")))
-            scores.append(float(feature.get("_match_score") or 0))
-
-    if start_point and end_point:
-        geometry = {"type": "LineString", "coordinates": [start_point, end_point]}
-        record.location_method = "hifld_substation_endpoints"
-        record.location_confidence = "high" if min(scores or [0]) >= 0.78 else "medium"
-    elif start_point or end_point:
-        geometry = {"type": "Point", "coordinates": start_point or end_point}
-        record.location_method = "hifld_substation_point"
-        record.location_confidence = "high" if (scores and max(scores) >= 0.78) else "medium"
-
-    if geometry:
-        record.gis = _geojson_compact(geometry)
-        record.centroid = _format_centroid(_geometry_centroid(geometry))
-        detail = "; ".join(n for n in matched_names if n)
-        record.gis_source = HIFLD_SUBSTATIONS_LAYER_URL + (f" | matched: {detail}" if detail else "")
-        return record
-
-    # Secondary fallback: coordinates explicitly published in the source text.
-    lat, lon = detect_coordinates(record.source_excerpt)
+    # 1) Official project GIS geometry linked by the official planning source.
+    for link in discovered_gis:
+        geometry = _fetch_official_geometry(session, link, record)
+        if geometry and _geometry_centroid(geometry):
+            return _set_gis_location(
+                record, geometry, "official_project_gis", link, "high",
+                "official_project_geometry", f"Official source linked project GIS: {link}",
+            )
+    lat, lon = detect_coordinates(excerpt)
     if lat and lon:
-        record.centroid = _format_centroid((lat, lon))
-        record.location_method = "source_published_coordinate"
-        record.gis_source = record.source_url
-        record.location_confidence = "medium"
-        return record
-
-    # Final fallback requested by the user: geocode a usable street address.
-    if record.address and record.address != MISSING_TEXT:
-        point, matched_address = geocode_address(
-            session,
-            record.address,
-            record.projected_locations,
+        return _set_gis_location(
+            record, {"type": "Point", "coordinates": [lon, lat]},
+            "official_source_coordinate", record.source_url, "high",
+            "official_project_coordinate", "Official source published explicit coordinates.",
         )
-        if point:
+
+    planned_names = extract_planned_station_names(excerpt)
+    structured = [x for x in [start, end] if x]
+    planned_lower = {p.lower() for p in planned_names}
+
+    # 2) Exact planned-facility match: HIFLD first, then OSM/Overpass.
+    planned_candidates = planned_names + [
+        x for x in structured if x.lower() in planned_lower
+    ]
+    seen_planned = set()
+    for name in planned_candidates:
+        if name.lower() in seen_planned:
+            continue
+        seen_planned.add(name.lower())
+        feature = query_hifld_substation(session, name, counties, record.voltage_kv, company)
+        if feature and _feature_exact_station_match(feature, name):
+            point = _point_from_feature(feature)
+            if point:
+                return _set_gis_location(
+                    record, {"type": "Point", "coordinates": point},
+                    "hifld_exact_planned_facility", HIFLD_SUBSTATIONS_LAYER_URL, "high",
+                    "exact_planned_facility", f"Exact HIFLD facility match: {_feature_name(feature)}",
+                )
+        osm = query_osm_substation(session, name, record.voltage_kv, company)
+        if osm and _feature_exact_station_match(osm, name):
+            point = _point_from_feature(osm)
+            if point:
+                return _set_gis_location(
+                    record, {"type": "Point", "coordinates": point},
+                    "osm_exact_planned_facility", OSM_SOURCE_LABEL, "medium",
+                    "exact_planned_facility", f"Exact OpenStreetMap substation match: {_feature_name(osm)}",
+                )
+
+    # 3) Collect existing endpoint/connection candidates, but DO NOT return yet.
+    # A real Step 4 transmission-line polyline contains more spatial information
+    # than one existing endpoint point.
+    existing_candidates = extract_existing_station_names(excerpt)
+    existing_candidates.extend(x for x in structured if x.lower() not in planned_lower)
+    existing_candidates.extend(
+        x for x in extract_station_names(excerpt)
+        if x.lower() not in planned_lower and x.lower() not in {n.lower() for n in existing_candidates}
+    )
+    matched_existing = []
+    seen_assets = set()
+    for name in existing_candidates[:12]:
+        feature, source, provider = _resolve_station_asset(
+            session, name, counties, record.voltage_kv, company
+        )
+        point = _point_from_feature(feature)
+        ident = _feature_identity(feature)
+        if not feature or not point or not ident or ident in seen_assets:
+            continue
+        # Coordinate guard catches separate feature IDs that still point to the same asset.
+        if any(_haversine_miles(point, old[2]) < 0.03 for old in matched_existing):
+            continue
+        seen_assets.add(ident)
+        matched_existing.append((name, feature, point, source, provider))
+        if len(matched_existing) >= 4:
+            break
+
+    named_lines = extract_named_transmission_lines(excerpt)
+
+    # 4) Named transmission-line match. Primary = spatial HIFLD polyline matching.
+    # If HIFLD cannot resolve a line, use OSM/Overpass power=line geometry in the
+    # same endpoint corridor. This directly implements the guide's suggested OSM path.
+    for a, b, voltage in named_lines:
+        line_voltage = voltage or record.voltage_kv
+        feature = query_hifld_transmission_line(
+            session, a, b, line_voltage, company, counties
+        )
+        geometry = (feature or {}).get("geometry")
+        if geometry and _geometry_centroid(geometry):
+            score = float(feature.get("_match_score") or 0)
+            return _set_gis_location(
+                record, geometry, "hifld_named_transmission_line",
+                str(feature.get("_source_url") or HIFLD_TRANSMISSION_LINES_LAYER_URL),
+                "high" if score >= 0.80 else "medium",
+                "existing_transmission_line_anchor",
+                f"Spatially matched named line: {a}-{b} {int(line_voltage)} kV; HIFLD score={score:.2f}",
+            )
+
+        fa, _, _ = _resolve_station_asset(session, a, counties, line_voltage, company)
+        fb, _, _ = _resolve_station_asset(session, b, counties, line_voltage, company)
+        pa, pb = _point_from_feature(fa), _point_from_feature(fb)
+        if pa and pb and _haversine_miles(pa, pb) > 0.05:
+            osm_line = query_osm_transmission_line_between(
+                session, pa, pb, line_voltage, company
+            )
+            geometry = (osm_line or {}).get("geometry")
+            if geometry and _geometry_centroid(geometry):
+                score = float(osm_line.get("_match_score") or 0)
+                return _set_gis_location(
+                    record, geometry, "osm_named_transmission_line", OSM_SOURCE_LABEL,
+                    "medium" if score >= 0.68 else "low",
+                    "existing_transmission_line_anchor",
+                    f"OpenStreetMap power=line matched between {a} and {b} ({int(line_voltage)} kV); score={score:.2f}",
+                )
+
+    # 5) Two existing facilities -> inferred connection point when an A-B named line
+    # cannot be mapped. Require two genuinely different assets and coordinates.
+    for a, b, voltage in named_lines:
+        line_voltage = voltage or record.voltage_kv
+        fa, source_a, _ = _resolve_station_asset(session, a, counties, line_voltage, company)
+        fb, source_b, _ = _resolve_station_asset(session, b, counties, line_voltage, company)
+        pa, pb = _point_from_feature(fa), _point_from_feature(fb)
+        if (
+            pa and pb
+            and _feature_identity(fa) != _feature_identity(fb)
+            and _haversine_miles(pa, pb) > 0.05
+        ):
+            midpoint = [(pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0]
+            sources = "; ".join(dict.fromkeys(x for x in [source_a, source_b] if x))
+            return _set_gis_location(
+                record, {"type": "Point", "coordinates": midpoint},
+                "inferred_existing_facility_pair", sources or HIFLD_SUBSTATIONS_LAYER_URL,
+                "low", "inferred_connection_point",
+                f"Estimated midpoint of distinct existing facilities {a} and {b}; named line geometry was not resolved.",
+            )
+
+    # Commit the Step 3 endpoint fallback only after Steps 4-5 had a chance to
+    # return richer geometry.
+    if len(matched_existing) >= 2:
+        a, b = matched_existing[0], matched_existing[1]
+        if _feature_identity(a[1]) != _feature_identity(b[1]) and _haversine_miles(a[2], b[2]) > 0.05:
+            geometry = {"type": "LineString", "coordinates": [a[2], b[2]]}
+            min_score = min(float(a[1].get("_match_score") or 0), float(b[1].get("_match_score") or 0))
+            sources = "; ".join(dict.fromkeys([a[3], b[3]]))
+            return _set_gis_location(
+                record, geometry, "derived_existing_endpoint_pair",
+                sources, "high" if min_score >= 0.85 else "medium",
+                "existing_endpoint_anchor",
+                f"Distinct existing endpoint assets: {_feature_name(a[1])}; {_feature_name(b[1])}",
+            )
+
+    if matched_existing:
+        name, feature, point, source, provider = matched_existing[0]
+        return _set_gis_location(
+            record, {"type": "Point", "coordinates": point},
+            "hifld_existing_endpoint" if provider == "HIFLD" else "osm_existing_endpoint",
+            source, "medium" if provider == "HIFLD" else "low",
+            "existing_endpoint_anchor",
+            f"Existing {provider} connection asset: {_feature_name(feature) or name}",
+        )
+
+    # 6) Official project/corridor map. Derive geometry only from explicit
+    # machine-readable coordinates; otherwise retain map evidence and continue.
+    map_note = ""
+    for map_url in discovered_maps:
+        geometry = _official_map_geometry(session, map_url)
+        if geometry and _geometry_centroid(geometry):
+            return _set_gis_location(
+                record, geometry, "official_map_derived", map_url, "medium",
+                "official_map_derived",
+                f"Geometry derived from coordinates printed in official project/corridor map: {map_url}",
+            )
+        if not map_note:
+            map_note = f"Official map found but not machine-georeferenceable: {map_url}"
+
+    # 7) Address geocode. Reject agency/headquarters/contact addresses so an
+    # administrative office cannot become a project's map location.
+    if record.address != MISSING_TEXT:
+        if _is_administrative_address(record, record.address):
+            record.address = MISSING_TEXT
+        else:
+            point, matched = geocode_address(session, record.address)
+            if point:
+                record.gis = MISSING_TEXT
+                record.centroid = _format_centroid(point) or MISSING_TEXT
+                record.location_method = "address_geocode"
+                record.gis_source = "U.S. Census Geocoder"
+                record.location_confidence = "medium"
+                record.spatial_role = "geocoded_address"
+                record.location_evidence = missing_text(
+                    (map_note + "; " if map_note else "") + "Validated project-specific street-address geocode."
+                )
+                if matched:
+                    record.address = matched
+                return record
+
+    # 8) City first, then county centroid. Administrative centroids remain
+    # centroid-only so they do not inflate strict GIS-geometry coverage.
+    cities = detect_cities(excerpt)
+    for city in cities[:3]:
+        point = _tiger_centroid(session, "city", city)
+        if point and _format_centroid(point):
+            record.gis = MISSING_TEXT
             record.centroid = _format_centroid(point)
-            record.location_method = "address_geocode"
-            record.gis_source = "U.S. Census Geocoder"
-            record.location_confidence = "medium"
-            if matched_address:
-                record.address = matched_address
+            record.location_method = "city_centroid_fallback"
+            record.gis_source = TIGER_PLACE_QUERY_URL.rsplit("/query", 1)[0]
+            record.location_confidence = "low"
+            record.spatial_role = "city_centroid_estimate"
+            record.location_evidence = missing_text(
+                (map_note + "; " if map_note else "") + f"Census TIGERweb city centroid: {city}"
+            )
             return record
+
+    county_names = [
+        c.strip() for c in counties.split(";")
+        if c.strip() and c.strip().lower().endswith("county")
+    ]
+    county_points = []
+    for county in county_names[:8]:
+        point = _tiger_centroid(session, "county", county)
+        if point:
+            county_points.append((county, point))
+    if county_points:
+        lat = sum(p[1][0] for p in county_points) / len(county_points)
+        lon = sum(p[1][1] for p in county_points) / len(county_points)
+        record.gis = MISSING_TEXT
+        record.centroid = _format_centroid((lat, lon)) or MISSING_TEXT
+        record.location_method = "county_centroid_fallback"
+        record.gis_source = TIGER_COUNTY_QUERY_URL.rsplit("/query", 1)[0]
+        record.location_confidence = "low"
+        record.spatial_role = "county_centroid_estimate"
+        record.location_evidence = missing_text(
+            (map_note + "; " if map_note else "")
+            + "Census TIGERweb county centroid(s): "
+            + "; ".join(x[0] for x in county_points)
+        )
+        return record
 
     record.gis = MISSING_TEXT
     record.centroid = MISSING_TEXT
     record.location_method = MISSING_TEXT
     record.gis_source = MISSING_TEXT
     record.location_confidence = "none"
+    record.spatial_role = MISSING_TEXT
+    record.location_evidence = missing_text(map_note)
     return record
 
-
-def prepare_row(row: dict) -> dict:
-    """Normalize fields and migrate legacy latitude/longitude into one centroid field."""
-    excerpt = row.get("source_excerpt") or ""
-    prepared = {field: row.get(field, "") for field in CSV_FIELDS}
-
-    prepared["voltage_kv"] = parse_voltage(
-        str(row.get("voltage_kv") or ""), allow_bare=True
-    ) or parse_voltage(excerpt)
-    prepared["approximate_line_mileage"] = parse_miles(
-        str(row.get("approximate_line_mileage") or ""), allow_bare=True,
-    ) or parse_miles(excerpt)
-    prepared["projected_year"] = parse_year(
-        str(row.get("projected_year") or "")
-    ) or parse_year(excerpt)
-    prepared["cost"] = parse_cost(str(row.get("cost") or "")) or parse_cost(excerpt)
-
-    address = missing_text(str(row.get("address") or ""))
-    if address == MISSING_TEXT:
-        address = missing_text(detect_address(excerpt))
-    prepared["address"] = address
-
-    # Backward compatibility: if an older CSV has separate coordinates, collapse
-    # them into the new centroid field instead of keeping latitude/longitude columns.
-    centroid = clean_text(str(row.get("centroid") or ""))
-    if not centroid or centroid.upper() == MISSING_TEXT:
+def format_cell(field: str, value) -> str:
+    if field in NUMERIC_FIELDS:
         try:
-            legacy_lat = float(row.get("latitude") or 0)
-            legacy_lon = float(row.get("longitude") or 0)
+            number = float(value or 0)
         except (TypeError, ValueError):
-            legacy_lat, legacy_lon = 0.0, 0.0
-        if legacy_lat and legacy_lon and _valid_coordinate(legacy_lat, legacy_lon):
-            centroid = f"{legacy_lat:.6f}, {legacy_lon:.6f}"
-            if not prepared.get("location_method"):
-                prepared["location_method"] = "legacy_coordinate"
-            if not prepared.get("location_confidence"):
-                prepared["location_confidence"] = "medium"
-    prepared["centroid"] = centroid or MISSING_TEXT
-
-    return {field: format_cell(field, prepared.get(field, "")) for field in CSV_FIELDS}
-
-
-def extract_records(source: dict, url: str, text: str, now: str) -> list[ProjectRecord]:
-    records = []
-
-    for block in split_candidate_blocks(text):
-        planning_company = detect_company(block, source["company_hint"])
-        project_type = detect_type(block)
-        projected_year = parse_year(block)
-        cost = parse_cost(block)
-        construction_time = detect_duration(block)
-
-        start_substation, end_substation = detect_substations(block)
-        counties = detect_counties(block)
-        case_number = detect_case_number(block)
-        filing_dates = detect_filing_dates(block)
-
-        voltage_text = detect_voltage(block)
-        voltage = parse_voltage(block)
-        mileage = parse_miles(block)
-        address = detect_address(block)
-
-        projected_locations = detect_locations(
-            block,
-            counties,
-            start_substation,
-            end_substation,
-        )
-
-        project_name = guess_project_name(block, source["name"])
-
-        if not (
-            projected_year
-            or cost
-            or projected_locations
-            or construction_time
-            or case_number
-            or filing_dates
-            or address
-        ):
-            continue
-
-        project_id = make_project_id(
-            planning_company,
-            project_name,
-            start_substation,
-            end_substation,
-            voltage_text,
-            case_number,
-        )
-
-        records.append(
-            ProjectRecord(
-                project_id=project_id,
-
-                planning_company=missing_text(planning_company),
-                project_name=missing_text(project_name),
-                project_type=missing_text(project_type),
-
-                gis=MISSING_TEXT,
-                centroid=MISSING_TEXT,
-                address=missing_text(address),
-                location_method=MISSING_TEXT,
-                gis_source=missing_text(source.get("gis_reference", "")),
-                location_confidence="none",
-
-                starting_substation=missing_text(start_substation),
-                ending_substation=missing_text(end_substation),
-                voltage_kv=voltage,
-                approximate_line_mileage=mileage,
-                counties_crossed=missing_text(counties),
-                regulatory_case_number=missing_text(case_number),
-                filing_dates=missing_text(filing_dates),
-
-                projected_year=projected_year,
-                cost=cost,
-                construction_time=missing_text(construction_time),
-                projected_locations=missing_text(projected_locations),
-
-                source_name=missing_text(source["name"]),
-                source_url=missing_text(url),
-                source_excerpt=missing_text(block[:1800]),
-
-                first_seen=now,
-                last_seen=now,
-                active="yes",
-            )
-        )
-
-    return records
+            number = 0.0
+        if field == "record_confidence":
+            return f"{number:.3f}"
+        if not number:
+            return "0"
+        if field in {"projected_year", "source_page"}:
+            return str(int(number))
+        if float(number).is_integer():
+            return str(int(number))
+        return f"{number:.4f}".rstrip("0").rstrip(".")
+    if field in {"project_id", "first_seen", "last_seen"}:
+        return clean_text(str(value or ""))
+    if field == "active":
+        return clean_text(str(value or "")) or "yes"
+    return missing_text(str(value or ""))
 
 
-def save_snapshot(snapshot_dir: Path, source_name: str, url: str, text: str) -> None:
-    day = datetime.now().strftime("%Y-%m-%d")
-    safe_source = re.sub(r"[^A-Za-z0-9._-]+", "_", source_name)[:60]
-    url_hash = hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
+def prepare_row(record_or_row) -> dict:
+    row = asdict(record_or_row) if isinstance(record_or_row, ProjectRecord) else dict(record_or_row)
+    return {field: format_cell(field, row.get(field, "")) for field in CSV_FIELDS}
 
-    folder = snapshot_dir / day
-    folder.mkdir(parents=True, exist_ok=True)
 
-    path = folder / f"{safe_source}_{url_hash}.txt"
-    path.write_text(
-        f"SOURCE URL: {url}\n\n{text}",
-        encoding="utf-8",
-    )
+def quality_score(record: ProjectRecord) -> float:
+    score = record.record_confidence * 100
+    if has_value(record.gis):
+        score += 40
+    elif has_value(record.centroid):
+        score += 20
+    score += sum(2 for field in [
+        record.starting_substation, record.ending_substation, record.counties_crossed,
+        record.regulatory_case_number, record.filing_dates,
+    ] if has_value(field))
+    return score
+
+
+def dedupe_records(records: list[ProjectRecord]) -> list[ProjectRecord]:
+    best: dict[str, ProjectRecord] = {}
+    for record in records:
+        current = best.get(record.project_id)
+        if current is None or quality_score(record) > quality_score(current):
+            best[record.project_id] = record
+    return list(best.values())
 
 
 def load_existing(path: Path) -> dict[str, dict]:
     if not path.exists():
         return {}
-
-    rows = {}
-
-    with path.open("r", newline="", encoding="utf-8-sig") as file:
-        for row in csv.DictReader(file):
+    rows: dict[str, dict] = {}
+    with path.open("r", newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
             key = row.get("project_id", "")
             if key:
                 rows[key] = row
-
     return rows
 
 
-def merge_and_write(
-    path: Path,
-    new_records: list[ProjectRecord],
-    now: str,
-) -> tuple[int, int]:
+def merge_and_write(path: Path, records: list[ProjectRecord]) -> tuple[int, int]:
     old = load_existing(path)
-    seen_this_run = set()
+    seen: set[str] = set()
     added = 0
-
-    for record in new_records:
-        seen_this_run.add(record.project_id)
-        new_row = asdict(record)
-
+    for record in records:
+        seen.add(record.project_id)
+        row = prepare_row(record)
         if record.project_id in old:
-            old_row = old[record.project_id]
-            new_row["first_seen"] = old_row.get("first_seen") or record.first_seen
-            old[record.project_id] = new_row
+            row["first_seen"] = old[record.project_id].get("first_seen") or row["first_seen"]
         else:
-            old[record.project_id] = new_row
             added += 1
-
+        old[record.project_id] = row
     for key, row in old.items():
-        if key not in seen_this_run:
+        if key not in seen:
             row["active"] = "not_seen_latest_run"
-
     path.parent.mkdir(parents=True, exist_ok=True)
-
-    with path.open("w", newline="", encoding="utf-8-sig") as file:
-        writer = csv.DictWriter(file, fieldnames=CSV_FIELDS)
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writeheader()
-
-        for row in sorted(
-            old.values(),
-            key=lambda r: (
-                str(r.get("planning_company", "")),
-                str(r.get("projected_year", "")),
-                str(r.get("project_name", "")),
-            ),
-        ):
-            writer.writerow(prepare_row(row))
-
+        for row in sorted(old.values(), key=lambda r: (
+            r.get("planning_company", ""), r.get("projected_year", ""), r.get("project_name", "")
+        )):
+            writer.writerow({field: row.get(field, MISSING_TEXT) for field in CSV_FIELDS})
     return added, len(old)
 
 
-def run_once(output: Path, snapshot_dir: Path) -> None:
+def write_review(path: Path, records: list[ProjectRecord]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        for record in sorted(records, key=lambda r: (r.source_name, -r.record_confidence, r.project_name)):
+            writer.writerow(prepare_row(record))
+
+
+def save_snapshot(snapshot_dir: Path, source_name: str, doc: SourceDocument) -> None:
+    day = datetime.now().strftime("%Y-%m-%d")
+    safe_source = re.sub(r"[^A-Za-z0-9._-]+", "_", source_name)[:60]
+    url_hash = hashlib.sha1(doc.url.encode("utf-8")).hexdigest()[:10]
+    folder = snapshot_dir / day
+    folder.mkdir(parents=True, exist_ok=True)
+    page = f"_p{doc.page_number:04d}" if doc.page_number else ""
+    path = folder / f"{safe_source}_{url_hash}{page}.txt"
+    path.write_text(f"SOURCE URL: {doc.url}\nPAGE: {doc.page_number}\n\n{doc.text}", encoding="utf-8")
+
+
+def run_once(
+    output: Path,
+    review_output: Path,
+    snapshot_dir: Path,
+    min_confidence: float,
+    no_gis: bool = False,
+) -> None:
     now = utc_now()
     session = get_session()
-    all_records = []
+    accepted: list[ProjectRecord] = []
+    review: list[ProjectRecord] = []
 
     for source in sorted(SOURCES, key=lambda s: s.get("gis_priority", 0), reverse=True):
         logging.info("Starting source: %s", source["name"])
+        docs = crawl_source(session, source)
+        logging.info("  Retrieved %d page/document(s)", len(docs))
+        source_accepted = 0
+        source_review = 0
+        for doc in docs:
+            save_snapshot(snapshot_dir, source["name"], doc)
+            candidates = extract_records(source, doc, now)
+            for record in candidates:
+                score, reason = validate_record(record)
+                record.record_confidence = score
+                record.review_reason = missing_text(reason)
+                if score >= min_confidence:
+                    if not no_gis:
+                        record = enrich_record_with_location(session, record)
+                    accepted.append(record)
+                    source_accepted += 1
+                else:
+                    review.append(record)
+                    source_review += 1
+        logging.info("  Accepted %d; review %d", source_accepted, source_review)
 
-        documents = crawl_source(session, source)
-        logging.info("  Retrieved %d document/page(s)", len(documents))
-
-        source_records = []
-
-        for url, text in documents:
-            save_snapshot(
-                snapshot_dir,
-                source["name"],
-                url,
-                text,
-            )
-
-            extracted = extract_records(
-                source,
-                url,
-                text,
-                now,
-            )
-            for record in extracted:
-                source_records.append(enrich_record_with_location(session, record))
-
-        logging.info(
-            "  Extracted %d candidate record(s)",
-            len(source_records),
-        )
-
-        all_records.extend(source_records)
-
-    best = {}
-
-    for record in all_records:
-        score = sum(
-            has_value(value)
-            for value in [
-                record.starting_substation,
-                record.ending_substation,
-                record.voltage_kv,
-                record.approximate_line_mileage,
-                record.counties_crossed,
-                record.regulatory_case_number,
-                record.filing_dates,
-                record.projected_year,
-                record.cost,
-                record.construction_time,
-                record.address,
-                record.centroid,
-                record.gis,
-            ]
-        )
-        if has_value(record.gis):
-            score += 150
-        elif has_value(record.centroid):
-            score += 100
-
-        existing = best.get(record.project_id)
-
-        if existing is None or score > existing[0]:
-            best[record.project_id] = (score, record)
-
-    unique_records = [pair[1] for pair in best.values()]
-
-    added, total = merge_and_write(
-        output,
-        unique_records,
-        now,
-    )
-
+    accepted = dedupe_records(accepted)
+    review = dedupe_records(review)
+    added, total = merge_and_write(output, accepted)
+    write_review(review_output, review)
     logging.info(
-        "Finished. %d candidate projects this run; %d newly added; %d total rows in %s",
-        len(unique_records),
-        added,
-        total,
-        output,
+        "Finished: %d accepted (%d new; %d total historical rows), %d quarantined to %s",
+        len(accepted), added, total, len(review), review_output,
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Monitor public Florida websites for future "
-            "transmission/substation plans."
-        )
-    )
-
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=DEFAULT_OUTPUT,
-        help=f"CSV path (default: {DEFAULT_OUTPUT})",
-    )
-
-    parser.add_argument(
-        "--snapshots",
-        type=Path,
-        default=DEFAULT_SNAPSHOT_DIR,
-        help=f"Raw-text snapshot directory (default: {DEFAULT_SNAPSHOT_DIR})",
-    )
-
-    parser.add_argument(
-        "--weekly",
-        action="store_true",
-        help=(
-            "Run immediately, then repeat every 7 days. "
-            "For production, an OS scheduler is preferred."
-        ),
-    )
-
-    parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-    )
-
+    parser = argparse.ArgumentParser(description="Monitor Florida future transmission/substation plans.")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--review-output", type=Path, default=DEFAULT_REVIEW_OUTPUT)
+    parser.add_argument("--snapshots", type=Path, default=DEFAULT_SNAPSHOT_DIR)
+    parser.add_argument("--min-confidence", type=float, default=DEFAULT_MIN_CONFIDENCE)
+    parser.add_argument("--no-gis", action="store_true", help="Skip HIFLD/Census enrichment (useful for parser testing).")
+    parser.add_argument("--fresh", action="store_true", help="Rebuild output from scratch instead of merging with an older CSV.")
+    parser.add_argument("--weekly", action="store_true")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(levelname)s %(message)s")
+    if not 0 <= args.min_confidence <= 1:
+        parser.error("--min-confidence must be between 0 and 1")
+
+    if args.fresh:
+        for path in (args.output, args.review_output):
+            if path.exists():
+                path.unlink()
+        logging.info("Fresh rebuild requested; prior output/review CSVs removed.")
 
     if not args.weekly:
-        run_once(
-            args.output,
-            args.snapshots,
-        )
+        run_once(args.output, args.review_output, args.snapshots, args.min_confidence, args.no_gis)
         return
-
+    if args.fresh:
+        logging.warning("--fresh only applies before the first weekly run; later weekly iterations merge normally.")
     while True:
         try:
-            run_once(
-                args.output,
-                args.snapshots,
-            )
+            run_once(args.output, args.review_output, args.snapshots, args.min_confidence, args.no_gis)
         except Exception:
             logging.exception("Weekly run failed")
-
-        logging.info("Sleeping for 7 days...")
         time.sleep(WEEK_SECONDS)
 
 

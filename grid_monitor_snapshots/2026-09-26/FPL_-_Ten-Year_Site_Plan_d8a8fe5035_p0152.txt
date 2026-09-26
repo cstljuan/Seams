@@ -1,0 +1,4 @@
+SOURCE URL: https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf
+PAGE: 152
+
+III.E.42 Transmission Facilities for the Pinecone Solar Energy Center in Calhoun County The work required to connect the approximate 74.5 MW (nameplate, AC) Pinecone Solar Energy Center in Calhoun County in the 3rd Quarter of 2027 is projected to be: I. Substation: 1. Extend 230 kV bus at Witt substation to a new Chinkapin substation and interconnect the 230/34.5kV transformer through a 230kV breaker. 2. Construct 34.5 kV bus to connect the PV array to Chinkapin 230 kV Substation. 3. Add relays and other protective equipment. 4. Breaker replacements: None II. Transmission: 1. No additional upgrades are expected to be necessary at this time. Florida Power & Light Company 138

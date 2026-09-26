@@ -1,0 +1,4 @@
+SOURCE URL: https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf
+PAGE: 132
+
+III.E.22 Transmission Facilities for the Middle Lake Solar Energy Center in Madison County The work required to connect the approximate 74.5 MW (nameplate, AC) Middle Lake Solar Energy Center in Madison County in the 1st Quarter of 2027 is projected to be: I.Substation: 1. Extend 161 kV bus at Bandit substation to a new Sound substation and interconnect the 161/34.5kV transformer through a 161kV breaker. 2. Construct 34.5 kV bus to connect the PV array to Sound Substation. 3. Add relays and other protective equipment. 4. Breaker replacements: None II.Transmission: 1. No additional upgrades are expected to be necessary at this time. Florida Power & Light Company 118

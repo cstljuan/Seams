@@ -1,0 +1,4 @@
+SOURCE URL: https://www.fpl.com/content/dam/fplgp/us/en/about/pdf/ten-year-site-plan.pdf
+PAGE: 193
+
+III.E.83 Transmission Facilities for the New River Solar Energy Center in Union County The work required to connect the approximate 74.5 MW (nameplate, AC) New River Solar Energy Center in Union County in the 3rd Quarter of 2029 is projected to be: I. Substation: 1. Construct a new single bus, two (2) breaker 115 kV substation Damson on the project site, adjacent to the Butler - Plum 115 kV line. 2. Add one 115/34.5 kV main step-up transformer (85 MVA) with a 115 kV breaker to connect PV inverter array at Damson substation. 3. Construct 34.5 kV bus to connect the PV array to Damson 115 kV substation. 4. Add relays and other protective equipment. 5. Breaker replacements: None II. Transmission: 1. Loop the adjacent new Butler - Plum 115 kV into Damson substation. 2. No additional upgrades are expected to be necessary at this time. Florida Power & Light Company 179

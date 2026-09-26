@@ -7,3 +7,4 @@
 - Run the existing test suite before opening a PR (if tests exist for what you touched).
 - Don't add a new dependency without saying why in the PR description.
 - Commit as the human who owns the session — no `Co-Authored-By` or "Generated with" lines, no AI tool names in commit messages or authorship.
+- Keep commit messages, PR descriptions, and code comments plain and simple. Short sentences, no jargon.

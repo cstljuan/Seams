@@ -6,6 +6,8 @@ Load florida_future_grid_projects.csv into the GridClusterDB MongoDB cluster.
 
 Each CSV row becomes one document. Rows are matched on project_id, so running
 the script again updates existing projects instead of inserting duplicates.
+Numeric fields, including latitude and longitude, are stored as numbers.
+Missing numbers are 0 and missing text is NA.
 
 The database user and password are read from .env (MONGO_USER, MONGO_PASSWORD).
 A full connection string in MONGODB_URI or --uri overrides that file.
@@ -25,6 +27,8 @@ from urllib.parse import quote_plus
 
 from pymongo import MongoClient, UpdateOne
 from pymongo.errors import PyMongoError
+
+from florida_grid_monitor import MISSING_TEXT, NUMERIC_FIELDS
 
 DEFAULT_CSV = Path("florida_future_grid_projects.csv")
 DEFAULT_DATABASE = "florida_grid"
@@ -72,6 +76,25 @@ def connection_uri(explicit_uri: str) -> str:
     )
 
 
+def coerce_value(field: str, value: str):
+    text = (value or "").strip()
+
+    if field in NUMERIC_FIELDS:
+        if text in {"", MISSING_TEXT}:
+            return 0
+        try:
+            number = float(text)
+        except ValueError:
+            return 0
+        if number == 0:
+            return 0
+        if field in {"latitude", "longitude"} or not number.is_integer():
+            return number
+        return int(number)
+
+    return text or MISSING_TEXT
+
+
 def load_rows(path: Path) -> tuple[list[dict], int]:
     if not path.exists():
         raise SystemExit(f"CSV not found: {path}")
@@ -85,7 +108,9 @@ def load_rows(path: Path) -> tuple[list[dict], int]:
             if not project_id:
                 skipped += 1
                 continue
-            documents.append({field: value or "" for field, value in row.items()})
+            documents.append(
+                {field: coerce_value(field, raw) for field, raw in row.items()}
+            )
 
     return documents, skipped
 

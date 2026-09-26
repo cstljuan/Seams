@@ -1,0 +1,433 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -82.051362,
+          33.562599
+        ]
+      },
+      "properties": {
+        "id": "DESC_1",
+        "utility": "DESC",
+        "utility_name": "Dominion Energy South Carolina",
+        "state": "SC",
+        "name": "Stevens Creek - Hooks 115 kV / LR Plumb Branch 46 kV Rebuilds",
+        "type": "line",
+        "voltage_kv": 115,
+        "in_service": "2024-12-31",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "Stevens Creek Sub",
+            "coordinates": [
+              -82.051362,
+              33.562599
+            ]
+          },
+          {
+            "name": "Hooks Sub",
+            "coordinates": null
+          }
+        ],
+        "geometry_quality": "single_substation",
+        "confidence": 0.4,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -82.195931,
+          33.660127
+        ]
+      },
+      "properties": {
+        "id": "DESC_2",
+        "utility": "DESC",
+        "utility_name": "Dominion Energy South Carolina",
+        "state": "SC",
+        "name": "Hooks - Thurmond 115 kV Tie: Rebuild",
+        "type": "line",
+        "voltage_kv": 115,
+        "in_service": "2024-12-31",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "Hooks Sub",
+            "coordinates": null
+          },
+          {
+            "name": "Thurmond Sub",
+            "coordinates": [
+              -82.195931,
+              33.660127
+            ]
+          }
+        ],
+        "geometry_quality": "single_substation",
+        "confidence": 0.4,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -81.0785475,
+          32.346439000000004
+        ]
+      },
+      "properties": {
+        "id": "DESC_3",
+        "utility": "DESC",
+        "utility_name": "Dominion Energy South Carolina",
+        "state": "SC",
+        "name": "Jasper - Okatie 230 kV #2: Construct",
+        "type": "line",
+        "voltage_kv": 230,
+        "in_service": "2025-12-31",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "Jasper Sub",
+            "coordinates": [
+              -81.1246,
+              32.35912
+            ]
+          },
+          {
+            "name": "Okatie Sub",
+            "coordinates": [
+              -81.032495,
+              32.333758
+            ]
+          }
+        ],
+        "geometry_quality": "substation_midpoint",
+        "confidence": 0.6,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.967332,
+          32.722793
+        ]
+      },
+      "properties": {
+        "id": "DESC_4",
+        "utility": "DESC",
+        "utility_name": "Dominion Energy South Carolina",
+        "state": "SC",
+        "name": "Queensboro - Ft Johnson 115 kV &amp; Queensboro-Bayfront 115 kV (Queensboro-James Island Sect)",
+        "type": "line",
+        "voltage_kv": 115,
+        "in_service": "2023-12-31",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "Queensboro Sub",
+            "coordinates": [
+              -79.967332,
+              32.722793
+            ]
+          },
+          {
+            "name": "Ft Johnson Sub",
+            "coordinates": null
+          }
+        ],
+        "geometry_quality": "single_substation",
+        "confidence": 0.4,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.9429395,
+          32.2843925
+        ]
+      },
+      "properties": {
+        "id": "DESC_5",
+        "utility": "DESC",
+        "utility_name": "Dominion Energy South Carolina",
+        "state": "SC",
+        "name": "Okatie-Bluffton 115 kV: Rebuild",
+        "type": "line",
+        "voltage_kv": 115,
+        "in_service": "2025-06-01",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "Okatie Sub",
+            "coordinates": [
+              -81.032495,
+              32.333758
+            ]
+          },
+          {
+            "name": "Bluffton Sub",
+            "coordinates": [
+              -80.853384,
+              32.235027
+            ]
+          }
+        ],
+        "geometry_quality": "substation_midpoint",
+        "confidence": 0.6,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -82.1822895,
+          33.6020605
+        ]
+      },
+      "properties": {
+        "id": "GPC_1",
+        "utility": "GPC",
+        "utility_name": "Georgia Power",
+        "state": "GA",
+        "name": "EVANS PRIMARY - THURMOND DAM (USA) #5 115KV REBUILD",
+        "type": "line",
+        "voltage_kv": 115,
+        "in_service": "2033-06-01",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "EVANS PRIMARY",
+            "coordinates": [
+              -82.168648,
+              33.543994
+            ]
+          },
+          {
+            "name": "THURMOND DAM #5",
+            "coordinates": [
+              -82.195931,
+              33.660127
+            ]
+          }
+        ],
+        "geometry_quality": "substation_midpoint",
+        "confidence": 0.6,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -81.175112,
+          32.352116
+        ]
+      },
+      "properties": {
+        "id": "GPC_2",
+        "utility": "GPC",
+        "utility_name": "Georgia Power",
+        "state": "GA",
+        "name": "SAV: MCINTOSH - PURRYSBURG 230KV REACTORS",
+        "type": "line",
+        "voltage_kv": 230,
+        "in_service": "2026-06-01",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "MCINTOSH",
+            "coordinates": [
+              -81.175112,
+              32.352116
+            ]
+          },
+          {
+            "name": "PURRYSBURG",
+            "coordinates": null
+          }
+        ],
+        "geometry_quality": "single_substation",
+        "confidence": 0.4,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -81.1957885,
+          32.3004085
+        ]
+      },
+      "properties": {
+        "id": "GPC_3",
+        "utility": "GPC",
+        "utility_name": "Georgia Power",
+        "state": "GA",
+        "name": "SAV: GOSHEN (SAV) - MCINTOSH 115KV LINE REBUILD",
+        "type": "line",
+        "voltage_kv": 115,
+        "in_service": "2027-06-01",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "GOSHEN",
+            "coordinates": [
+              -81.209472,
+              32.248701
+            ]
+          },
+          {
+            "name": "MCINTOSH",
+            "coordinates": [
+              -81.182105,
+              32.352116
+            ]
+          }
+        ],
+        "geometry_quality": "substation_midpoint",
+        "confidence": 0.6,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -83.8414865,
+          31.462605
+        ]
+      },
+      "properties": {
+        "id": "GPC_4",
+        "utility": "GPC",
+        "utility_name": "Georgia Power",
+        "state": "GA",
+        "name": "MITCHELL - NORTH TIFTON 230KV RECONDUCTOR",
+        "type": "line",
+        "voltage_kv": 230,
+        "in_service": "2025-05-01",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "Mitchell Substation",
+            "coordinates": [
+              -84.133843,
+              31.447121
+            ]
+          },
+          {
+            "name": "North Tifton Substation",
+            "coordinates": [
+              -83.54913,
+              31.478089
+            ]
+          }
+        ],
+        "geometry_quality": "substation_midpoint",
+        "confidence": 0.6,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -81.834325,
+          31.6623515
+        ]
+      },
+      "properties": {
+        "id": "GPC_5",
+        "utility": "GPC",
+        "utility_name": "Georgia Power",
+        "state": "GA",
+        "name": "JESUP - LUDOWICI PRIMARY 115KV REBUILD",
+        "type": "line",
+        "voltage_kv": 115,
+        "in_service": "2025-06-01",
+        "start": null,
+        "endpoints": [
+          {
+            "name": "JESUP",
+            "coordinates": [
+              -81.924947,
+              31.603106
+            ]
+          },
+          {
+            "name": "LUDOWICI PRIMARY",
+            "coordinates": [
+              -81.743703,
+              31.721597
+            ]
+          }
+        ],
+        "geometry_quality": "substation_midpoint",
+        "confidence": 0.6,
+        "source": {
+          "doc": "Sperry Tech GridLock sample package, Projects_Overlaps.xlsx",
+          "page": null,
+          "url": null
+        }
+      }
+    }
+  ]
+}

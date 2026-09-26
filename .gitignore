@@ -1,6 +1,5 @@
-# Secrets — never commit these
-.env
-.env.*
+# Secrets. Keep .env.example tracked.
+.env*
 !.env.example
 *.pem
 *.key
@@ -8,17 +7,15 @@ secrets/
 credentials.json
 *.token
 
-# Research / vault — lives outside this repo, never here
+# Research and vault content
 vault/
 .obsidian/
 Research-Data/
 
-# OS files
+# OS and editors
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# Editor folders
 .vscode/
 .idea/
 *.swp
@@ -34,6 +31,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.tsbuildinfo
 
 # Python
 __pycache__/

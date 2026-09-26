@@ -15,10 +15,10 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 9 | Overlap engine: closest distance, tier, time overlap, ranking + tests | Charles | todo | | |
 | 10 | Cost model + range (P10/P50/P90) | Charles | todo | | |
 | 11 | Build `data/overlaps.json` from projects; `/api/overlaps` (Mongo, JSON fallback) | Charles | todo | 9 | |
-| 12 | Map with both utilities, markers by type, overlap lines by tier | Brent | todo | 1 | |
-| 13 | Sidebar: search, date range, time-only toggle, ranked list, expandable row | Brent | todo | 1 | |
-| 14 | Select overlap: zoom map, draw line, show details | Brent | todo | 12, 13 | |
-| 15 | Mascot component in the corner, wired to reactions | Brent | todo | 1 | |
+| 12 | Map with both utilities, markers by type, overlap lines by tier | Brent | in review (fixtures) | 1 | [#4](https://github.com/cstljuan/Shellhacks-2026/pull/4) |
+| 13 | Sidebar: search, date range, time-only toggle, ranked list, expandable row | Brent | in review (fixtures) | 1 | [#4](https://github.com/cstljuan/Shellhacks-2026/pull/4) |
+| 14 | Select overlap: zoom map, draw line, show details | Brent | in review (fixtures) | 12, 13 | [#4](https://github.com/cstljuan/Shellhacks-2026/pull/4) |
+| 15 | Mascot component in the corner, wired to reactions | Brent | in review (fixtures) | 1 | [#4](https://github.com/cstljuan/Shellhacks-2026/pull/4) |
 | 16 | Deploy + free GoDaddy domain | Juan | todo | 1 | |
 | 17 | Pitch script (3 min + 5 min) | Juan, Charles | todo | | |
 | 18 | Demo video | Juan | todo | 14 | |

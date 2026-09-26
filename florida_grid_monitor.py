@@ -657,7 +657,7 @@ def extract_records(source: dict, url: str, text: str, now: str) -> list[Project
 
         records.append(
             ProjectRecord(
-                project_id=key,
+                project_id=project_id,
 
                 planning_company=planning_company,
                 project_name=project_name,

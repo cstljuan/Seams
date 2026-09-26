@@ -1,0 +1,22 @@
+/* Theme tokens. Placeholder values: the brand is not final.
+   Components must only use these variables. Swap the values here to rebrand. */
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --text: #101418;
+  --muted: #5d6673;
+  --accent: #0f766e;
+
+  /* Overlap tiers, most severe (1) to least (4). */
+  --tier-1: #b42318;
+  --tier-2: #e0661a;
+  --tier-3: #c99a06;
+  --tier-4: #4d8a3a;
+
+  /* Utilities: a = DESC, b = GPC. */
+  --utility-a: #7c3aed;
+  --utility-b: #1d64d8;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}

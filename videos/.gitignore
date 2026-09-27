@@ -4,3 +4,4 @@ out/
 *.log
 # Footage is captured locally and kept in the team Drive, not in Git.
 public/footage/
+audio/voice/

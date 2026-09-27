@@ -1,11 +1,15 @@
 // Loads projects and overlaps into MongoDB Atlas.
 // Run `npm run build:overlaps` first so the overlaps include cost estimates.
 // Safe to run again: each run replaces both collections with the local data.
+// With --optional (used in the Vercel build), a missing URI or a failed connection
+// only prints a warning, so the deploy still goes out and the API uses local JSON.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { MongoClient } from "mongodb";
 import { DB_NAME } from "../lib/mongo";
 import type { Overlap, Project } from "../lib/data";
+
+const optional = process.argv.includes("--optional");
 
 async function readFirst<T>(files: string[]): Promise<{ file: string; data: T }> {
   for (const file of files) {
@@ -25,7 +29,13 @@ async function main() {
     // No .env file. MONGODB_URI can still come from the shell.
   }
   const uri = process.env.MONGODB_URI;
-  if (!uri) throw new Error("Set MONGODB_URI in .env or in the shell first.");
+  if (!uri) {
+    if (optional) {
+      console.log("No MONGODB_URI, skipping the Atlas seed.");
+      return;
+    }
+    throw new Error("Set MONGODB_URI in .env or in the shell first.");
+  }
 
   const root = process.cwd();
   const projects = await readFirst<{ features: Project[] }>([
@@ -39,7 +49,7 @@ async function main() {
   console.log(`Projects from ${path.relative(root, projects.file)}`);
   console.log(`Overlaps from ${path.relative(root, overlaps.file)}`);
 
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10_000 });
   try {
     await client.connect();
     const db = client.db(DB_NAME);
@@ -62,6 +72,11 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  const message = error instanceof Error ? error.message : String(error);
+  if (optional) {
+    console.warn(`Atlas seed skipped: ${message}`);
+    return;
+  }
+  console.error(message);
   process.exit(1);
 });

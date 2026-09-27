@@ -1,0 +1,3 @@
+{
+  "buildCommand": "npm run seed:atlas -- --optional && npm run build"
+}

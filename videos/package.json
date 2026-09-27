@@ -1,0 +1,25 @@
+{
+  "name": "seams-film",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Seams product film. Standalone Remotion package, not part of the web app.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts --port 3102",
+    "typecheck": "tsc --noEmit",
+    "compositions": "remotion compositions src/index.ts",
+    "render:draft": "remotion render src/index.ts SeamsFilm out/draft-720p.mp4 --scale=0.6667 --concurrency=2",
+    "render:final": "remotion render src/index.ts SeamsFilm out/final-1080p.mp4 --concurrency=2",
+    "render:opener": "remotion render src/index.ts SeamsOpener out/opener-1080p.mp4 --concurrency=2"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/fonts": "4.0.529",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.8",
+    "typescript": "5.8.3"
+  }
+}

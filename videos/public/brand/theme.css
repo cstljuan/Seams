@@ -1,0 +1,48 @@
+/* Theme tokens: Utility Navy. Light by default, dark follows the system setting.
+   Components must only use these variables. Swap the values here to rebrand. */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --text: #0f1b2d;
+  --muted: #5b6778;
+  --accent: #1f3a5f;
+
+  /* Arc, the mascot. */
+  --arc: #f5bc42;
+
+  /* Overlap tiers, most severe (1) to least (4). */
+  --tier-1: #d92d20;
+  --tier-2: #f0772b;
+  --tier-3: #e9b308;
+  --tier-4: #5b8def;
+
+  /* Utilities: a = DESC, b = GPC. */
+  --utility-a: #1f3a5f;
+  --utility-b: #0e9384;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Dark: control room. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1422;
+    --surface: #111d30;
+    --text: #e8eef7;
+    --muted: #8a9ab0;
+    --accent: #f5bc42;
+
+    --arc: #f5bc42;
+
+    --tier-1: #ff5a4e;
+    --tier-2: #ff9a3c;
+    --tier-3: #ffd43b;
+    --tier-4: #6ea8ff;
+
+    --utility-a: #b8c7ff;
+    --utility-b: #3ddcb4;
+  }
+}

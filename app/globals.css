@@ -1,0 +1,39 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+/* Only theme colours: drop Tailwind's built-in palette and map our tokens. */
+@theme {
+  --color-*: initial;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-tier-4: var(--tier-4);
+  --color-utility-a: var(--utility-a);
+  --color-utility-b: var(--utility-b);
+  --color-line: color-mix(in srgb, var(--text) 12%, transparent);
+  --color-hover: color-mix(in srgb, var(--text) 5%, transparent);
+  --color-transparent: transparent;
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

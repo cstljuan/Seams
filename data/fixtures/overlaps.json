@@ -1,0 +1,140 @@
+[
+  {
+    "id": "OVL_1",
+    "a": "DESC_2",
+    "b": "GPC_1",
+    "distance_km": 6.58,
+    "sperry_distance_km": 6.58,
+    "tier": 3,
+    "time_gap_days": 3074,
+    "time_overlap": false,
+    "closest_points": [
+      [
+        -82.195931,
+        33.660127
+      ],
+      [
+        -82.1822895,
+        33.6020605
+      ]
+    ],
+    "approximate": true,
+    "cost": null,
+    "rank": 1
+  },
+  {
+    "id": "OVL_2",
+    "a": "DESC_3",
+    "b": "GPC_2",
+    "distance_km": 9.09,
+    "sperry_distance_km": 9.09,
+    "tier": 4,
+    "time_gap_days": 152,
+    "time_overlap": true,
+    "closest_points": [
+      [
+        -81.0785475,
+        32.346439000000004
+      ],
+      [
+        -81.175112,
+        32.352116
+      ]
+    ],
+    "approximate": true,
+    "cost": null,
+    "rank": 2
+  },
+  {
+    "id": "OVL_3",
+    "a": "DESC_3",
+    "b": "GPC_3",
+    "distance_km": 12.15,
+    "sperry_distance_km": 12.15,
+    "tier": 4,
+    "time_gap_days": 517,
+    "time_overlap": false,
+    "closest_points": [
+      [
+        -81.0785475,
+        32.346439000000004
+      ],
+      [
+        -81.1957885,
+        32.3004085
+      ]
+    ],
+    "approximate": true,
+    "cost": null,
+    "rank": 3
+  },
+  {
+    "id": "OVL_4",
+    "a": "DESC_1",
+    "b": "GPC_1",
+    "distance_km": 12.9,
+    "sperry_distance_km": 12.89,
+    "tier": 4,
+    "time_gap_days": 3074,
+    "time_overlap": false,
+    "closest_points": [
+      [
+        -82.051362,
+        33.562599
+      ],
+      [
+        -82.1822895,
+        33.6020605
+      ]
+    ],
+    "approximate": true,
+    "cost": null,
+    "rank": 4
+  },
+  {
+    "id": "OVL_5",
+    "a": "DESC_5",
+    "b": "GPC_2",
+    "distance_km": 23.08,
+    "sperry_distance_km": 23.08,
+    "tier": 4,
+    "time_gap_days": 365,
+    "time_overlap": true,
+    "closest_points": [
+      [
+        -80.9429395,
+        32.2843925
+      ],
+      [
+        -81.175112,
+        32.352116
+      ]
+    ],
+    "approximate": true,
+    "cost": null,
+    "rank": 5
+  },
+  {
+    "id": "OVL_6",
+    "a": "DESC_5",
+    "b": "GPC_3",
+    "distance_km": 23.83,
+    "sperry_distance_km": 23.83,
+    "tier": 4,
+    "time_gap_days": 730,
+    "time_overlap": false,
+    "closest_points": [
+      [
+        -80.9429395,
+        32.2843925
+      ],
+      [
+        -81.1957885,
+        32.3004085
+      ]
+    ],
+    "approximate": true,
+    "cost": null,
+    "rank": 6
+  }
+]

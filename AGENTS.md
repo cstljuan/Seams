@@ -15,3 +15,5 @@ Project: Seams, ShellHacks 2026, Sperry Tech GridLock challenge.
 - Keep colours and fonts in the theme file. Keep distances labelled as approximate unless both geometries are OSM lines.
 - Show cost estimates as ranges, never as one exact number.
 - Stay within the folder ownership listed in `HOW-TO-USE.md`.
+- One person owns one feature at a time. Don't edit files another teammate's branch is working on. Ask in Discord first if you need to touch shared code.
+- The team's research and notes live in Juan's Obsidian vault, not in this repo. For project context, ask in Discord and Axiom (the team bot) answers from the vault. Don't try to read, copy, or guess vault content.

@@ -4,9 +4,13 @@ import { useImperativeHandle, useMemo, useRef, useState, type Ref } from "react"
 import Map, { Layer, Marker, NavigationControl, Source, type MapRef } from "react-map-gl/maplibre";
 import type { LngLat, Overlap, Project, ProjectType } from "@/lib/data";
 import { cleanText, utilityVar } from "./overlaps";
+import { useColorScheme } from "./useColorScheme";
 import { useThemeColors } from "./useThemeColors";
 
-const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
+const STYLE_URLS = {
+  light: "https://tiles.openfreemap.org/styles/positron",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+};
 const US_VIEW = { longitude: -96, latitude: 38.5, zoom: 3.4 };
 
 export interface MapHandle {
@@ -28,6 +32,7 @@ interface Props {
 export default function MapView({ ref, projects, overlaps, selectedId, dimmedProjectIds, onSelect, onProjectClick }: Props) {
   const map = useRef<MapRef>(null);
   const colors = useThemeColors();
+  const scheme = useColorScheme();
   const [hovering, setHovering] = useState(false);
 
   useImperativeHandle(ref, () => ({
@@ -76,7 +81,7 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
     <Map
       ref={map}
       initialViewState={US_VIEW}
-      mapStyle={STYLE_URL}
+      mapStyle={STYLE_URLS[scheme]}
       style={{ width: "100%", height: "100%" }}
       interactiveLayerIds={["overlap-lines-hit"]}
       cursor={hovering ? "pointer" : "grab"}

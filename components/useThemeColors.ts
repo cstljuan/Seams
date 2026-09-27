@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo } from "react";
+import { useColorScheme } from "./useColorScheme";
 
 // Map layers need real colour strings, not CSS variables.
-// Read the theme tokens once and turn each into rgba() via a 1px canvas,
+// Read the theme tokens and turn each into rgba() via a 1px canvas,
 // so any CSS colour format in theme.css works. Browser only (the map is not server rendered).
 const TOKENS = ["--tier-1", "--tier-2", "--tier-3", "--tier-4", "--utility-a", "--utility-b", "--surface", "--text"] as const;
 export type ThemeColors = Record<(typeof TOKENS)[number], string>;
@@ -27,6 +28,7 @@ function readColors(): ThemeColors | null {
 }
 
 export function useThemeColors(): ThemeColors | null {
-  const [colors] = useState(readColors);
-  return colors;
+  // Read again when the device switches between light and dark.
+  const scheme = useColorScheme();
+  return useMemo(() => (scheme ? readColors() : null), [scheme]);
 }

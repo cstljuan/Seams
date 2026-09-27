@@ -1,6 +1,6 @@
 # How to use Seams
 
-Install Node.js, then run `npm install` and `npm run dev`. Open the local address printed by Next.js. The initial map uses Sperry's sample projects and the OpenFreeMap Positron basemap.
+Install Node.js, then run `npm install` and `npm run dev`. Open the local address printed by Next.js. The initial map uses Sperry's sample projects and the OpenFreeMap Positron basemap (Dark in dark mode).
 
 The right panel has location search, a date range, a "time overlaps only" toggle, and the ranked overlap list. Click a row, a line, or a marker to open that overlap. The app reads the fixtures in `data/fixtures/` for now. To use the API, change `SOURCE` in `lib/data.ts` to `"api"`.
 

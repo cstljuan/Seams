@@ -2,7 +2,7 @@ import React from "react";
 import { Img, interpolate, staticFile, useCurrentFrame, Easing } from "remotion";
 import { C } from "../theme";
 import { Stage, useEnter } from "../parts";
-import { LIVE_URL } from "../data";
+import { DOMAIN } from "../data";
 
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
@@ -27,7 +27,7 @@ export const Close: React.FC<{ len?: number; line?: string }> = ({ len = 270, li
         </div>
         <div style={{ position: "absolute", left: 0, right: 0, top: 610, textAlign: "center", fontSize: 58, fontWeight: 500, ...tag }}>{line}</div>
         <div style={{ position: "absolute", left: 0, right: 0, top: 720, textAlign: "center", fontSize: 40, color: C.arc, letterSpacing: "0.02em", ...url }}>
-          {LIVE_URL}
+          {DOMAIN}
         </div>
       </div>
     </Stage>

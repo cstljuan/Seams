@@ -18,5 +18,8 @@ export const PAIR = {
 };
 
 export const COUNTS = { projects: 10, overlaps: 6 };
+// Where the footage was captured (stays true to the capture).
 export const LIVE_URL = "seams-coral.vercel.app";
+// Public domain shown on the closing frame. Juan is connecting it in Vercel.
+export const DOMAIN = "seams.design";
 export const CAPTURED = "captured 27 Sep 2026";

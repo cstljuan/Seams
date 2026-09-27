@@ -4,7 +4,7 @@ import overlapsData from "@/data/fixtures/overlaps.json";
 import type { Project } from "@/lib/data";
 import { closestDistanceKm, tier } from "./overlap";
 
-const projects = (projectsData as { features: Project[] }).features;
+const projects = (projectsData as unknown as { features: Project[] }).features;
 const overlaps = overlapsData as {
   a: string;
   b: string;

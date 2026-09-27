@@ -8,8 +8,9 @@ All files are pure vector paths (no fonts, no raster) in `public/brand/`:
 - `logo-full-light.svg`: Arc mark #F5BC42 + "seams" wordmark #0F1B2D, for light backgrounds. viewBox 0 0 1111 451.
 - `logo-full-dark.svg`: same, wordmark #E8EEF7, for dark backgrounds.
 - `logo-mark-only.svg`: Arc mark alone, eyes are transparent cut-outs. Also the favicon (`app/icon.svg`).
-- Clear space: at least the height of one Arc eye on every side. Minimum size: mark 16 px, full logo 96 px wide.
-- Do not recolour the mark except to one solid colour (monochrome), do not add gradients, outlines or a mouth.
+- Clear space: at least the height of the "s" on every side. Minimum size: 24 px tall in UI, 16 px as favicon.
+- Mark is always Arc gold #F5BC42; wordmark uses `--text`. Monochrome: one solid colour for the whole logo. No gradients, outlines or a mouth. Arc sits beside the logo, never inside or behind it.
+- Figma: "Brand and UI" file, page 02-Logo, component set "Logo" (Full light, Full dark, Mark). Brand guide slides 01 and 10.
 
 ## Layout (from Juan's wireframe)
 Two panes, full screen:

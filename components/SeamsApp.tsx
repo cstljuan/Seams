@@ -9,10 +9,22 @@ import InfoDrawer, { type InfoTopic } from "./InfoDrawer";
 import { ChevronIcon } from "./icons";
 import LocationSearch from "./LocationSearch";
 import MapLegend from "./MapLegend";
+import ArcCorner, { type ArcCornerHandle } from "./ArcCorner";
+import LoadingScreen from "./LoadingScreen";
 import type { MapHandle } from "./MapView";
-import Mascot, { type MascotHandle, type MascotReaction } from "./Mascot";
+import type { MascotReaction } from "./Mascot";
 import OverlapList from "./OverlapList";
-import { EMPTY_FILTERS, filterOverlaps, hasFilters, inRange, indexProjects, overlapBounds, sides, type Filters } from "./overlaps";
+import {
+  EMPTY_FILTERS,
+  filterOverlaps,
+  formatKm,
+  hasFilters,
+  inRange,
+  indexProjects,
+  overlapBounds,
+  sides,
+  type Filters,
+} from "./overlaps";
 import type { Place } from "./places";
 
 // The map needs the browser, so skip it on the server.
@@ -23,6 +35,16 @@ const MapView = dynamic(() => import("./MapView"), {
 
 const IDLE_SLEEP_MS = 60_000;
 const THINK_MS = 450;
+// If the base map is slow, stop waiting for it after the data is in. The list works without it.
+const MAP_WAIT_MS = 4_000;
+
+// What each tier means for the crews, in Arc's words. Short forms of TIER_LABELS.
+const TIER_LINES: Record<1 | 2 | 3 | 4, string> = {
+  1: "They touch or cross, so outages need planning together.",
+  2: "Close enough to share land, access roads and permits.",
+  3: "Close enough to share laydown yards and deliveries.",
+  4: "Close enough to share crews and equipment.",
+};
 
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: SeamsData };
 
@@ -33,8 +55,11 @@ export default function SeamsApp() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [info, setInfo] = useState<InfoTopic | null>(null);
   const [tilesFailed, setTilesFailed] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapWaitOver, setMapWaitOver] = useState(false);
+  const [booting, setBooting] = useState(true);
   const map = useRef<MapHandle>(null);
-  const mascot = useRef<MascotHandle>(null);
+  const mascot = useRef<ArcCornerHandle>(null);
   const sleeping = useRef(false);
   const reactionToken = useRef(0);
 
@@ -53,7 +78,7 @@ export default function SeamsApp() {
       })
       .catch((err: unknown) => {
         setLoad({ status: "error", message: err instanceof Error ? err.message : String(err) });
-        void play("error");
+        mascot.current?.say("I couldn't reach the data. Try again on the right.", "error");
       });
   }, [play]);
 
@@ -78,6 +103,49 @@ export default function SeamsApp() {
     return out;
   }, [data, filters.start, filters.end]);
 
+  // Loading screen: wait for the data and the base map, then Arc flies to his corner and says hello.
+  useEffect(() => {
+    if (!data) return;
+    const t = setTimeout(() => setMapWaitOver(true), MAP_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [data]);
+  const bootPhase = load.status === "error" ? "error" : data && (mapReady || mapWaitOver || tilesFailed) ? "ready" : "loading";
+  const arcRect = useCallback(() => mascot.current?.rect() ?? null, []);
+  const overlapCount = data?.overlaps.length ?? 0;
+  const onBooted = useCallback(() => {
+    setBooting(false);
+    if (overlapCount === 0) return;
+    setTimeout(
+      () =>
+        mascot.current?.say(`Hi, I'm Arc. I found ${overlapCount} spots where GPC and DESC plans meet. Click a row to fly there, or click me for tips.`, "wink"),
+      250,
+    );
+  }, [overlapCount]);
+
+  // What Arc says when clicked, in turn. Built from the data, so the numbers stay true.
+  const arcTips = useMemo(() => {
+    if (!data?.overlaps.length) return ["Still loading. Give me a second."];
+    const n = data.overlaps.length;
+    const closest = Math.min(...data.overlaps.map((o) => o.distance_km));
+    const timed = data.overlaps.filter((o) => o.time_overlap).length;
+    const tips = [
+      `${n} pairs of GPC and DESC projects are within 40 km. The closest are about ${formatKm(closest)} apart.`,
+      "Click a row or a line on the map and I'll fly you to that pair.",
+      timed
+        ? `${timed} of the ${n} pairs also go into service within a year of each other. Try “Time overlaps only”.`
+        : "No pair goes into service within a year of the other yet, so the timing is still open.",
+      "Drag me around. I always snap back.",
+      "Search a city up top to jump the map there.",
+      "Savings are model estimates, so I show a range, not one number.",
+      "Press and hold me for a squeeze.",
+      "Open a pair to copy a coordination brief you can send to both utilities.",
+    ];
+    if (selected) {
+      tips.unshift(`Pair #${selected.rank} is about ${formatKm(selected.distance_km)} apart. ${TIER_LINES[selected.tier]}`);
+    }
+    return tips;
+  }, [data, selected]);
+
   const projectTypes = useMemo(() => new Set(data?.projects.map((p) => p.properties.type) ?? []), [data]);
 
   // Change filters. Drop the selection if the new filters hide it.
@@ -91,7 +159,9 @@ export default function SeamsApp() {
       const token = ++reactionToken.current;
       void play("thinking");
       setTimeout(() => {
-        if (token === reactionToken.current) void play(nextVisible.length === 0 ? "confused" : "idle");
+        if (token !== reactionToken.current) return;
+        if (nextVisible.length > 0) void play("idle");
+        else mascot.current?.say("Nothing matches those filters. Try widening the dates.", "confused");
       }, THINK_MS);
     },
     [selectedId, data, index, play],
@@ -125,7 +195,9 @@ export default function SeamsApp() {
       if (!o) return;
       map.current?.fitBounds(overlapBounds(o, sides(o, index)));
       // Warn only for a real schedule match or a touching/very close pair. Otherwise just point at it.
-      void play(o.time_overlap || o.tier <= 2 ? "alert" : "found");
+      const reaction = o.time_overlap || o.tier <= 2 ? "alert" : "found";
+      const timing = o.time_overlap ? " and both go into service within a year" : "";
+      mascot.current?.say(`#${o.rank}: about ${formatKm(o.distance_km)} apart${timing}. ${TIER_LINES[o.tier]}`, reaction);
     },
     [data, index, play],
   );
@@ -191,7 +263,8 @@ export default function SeamsApp() {
   );
 
   return (
-    <main className="flex h-full min-w-[1024px] bg-bg text-text">
+    <main className="flex h-full min-w-[1024px] bg-bg text-text" aria-busy={booting}>
+      {booting && <LoadingScreen phase={bootPhase} overlapCount={overlapCount} target={arcRect} onGone={onBooted} />}
       <section className="relative min-w-0 flex-1" aria-label="Map">
         <MapView
           ref={map}
@@ -202,6 +275,7 @@ export default function SeamsApp() {
           onSelect={select}
           onProjectClick={onProjectClick}
           onTileError={() => setTilesFailed(true)}
+          onReady={() => setMapReady(true)}
         />
 
         {load.status === "loading" && (
@@ -243,9 +317,7 @@ export default function SeamsApp() {
           <MapLegend types={projectTypes} />
         </div>
 
-        <div className="pointer-events-none absolute bottom-6 left-3">
-          <Mascot ref={mascot} size={96} />
-        </div>
+        <ArcCorner ref={mascot} tips={arcTips} hidden={booting} />
 
         <button
           type="button"

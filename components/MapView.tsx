@@ -32,9 +32,11 @@ interface Props {
   onSelect(id: string | null): void;
   onProjectClick(projectId: string): void;
   onTileError?(): void;
+  // The base map style has loaded, so the map is ready to show.
+  onReady?(): void;
 }
 
-export default function MapView({ ref, projects, overlaps, selectedId, dimmedProjectIds, onSelect, onProjectClick, onTileError }: Props) {
+export default function MapView({ ref, projects, overlaps, selectedId, dimmedProjectIds, onSelect, onProjectClick, onTileError, onReady }: Props) {
   const map = useRef<MapRef>(null);
   const [loaded, setLoaded] = useState(false);
   const tileErrorSent = useRef(false);
@@ -117,7 +119,10 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
     <Map
       ref={map}
       initialViewState={START_VIEW}
-      onLoad={() => setLoaded(true)}
+      onLoad={() => {
+        setLoaded(true);
+        onReady?.();
+      }}
       onError={(e) => {
         // Tile or style failures: tell the app once so the list can carry on alone.
         if (tileErrorSent.current) return;

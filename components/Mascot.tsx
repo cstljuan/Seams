@@ -6,13 +6,21 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "reac
 export type MascotReaction =
   | "idle"
   | "thinking"
+  | "waiting-wrap"
   | "alert"
   | "found"
   | "wide"
   | "error"
   | "confused"
   | "sleep"
-  | "happy";
+  | "wake"
+  | "happy"
+  | "wink"
+  | "success"
+  | "surprise";
+
+// What Arc does when someone plays with him directly (see arc-mascot.js).
+export type MascotGesture = "drag" | "tip" | "hold";
 
 export interface MascotHandle {
   play(name: MascotReaction): Promise<void>;
@@ -25,7 +33,7 @@ interface ArcElement extends HTMLElement {
 }
 
 // These hold until something else plays. The rest are one-shots.
-const LOOPING: MascotReaction[] = ["idle", "thinking", "sleep"];
+const LOOPING: MascotReaction[] = ["idle", "thinking", "waiting-wrap", "sleep"];
 
 declare module "react" {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -68,17 +76,50 @@ function loadScript(): Promise<void> {
   });
 }
 
-export default function Mascot({ ref, size = 96 }: { ref?: Ref<MascotHandle>; size?: number }) {
+interface Props {
+  ref?: Ref<MascotHandle>;
+  size?: number;
+  // Held state to start in, e.g. "waiting-wrap" on the loading screen.
+  initial?: MascotReaction;
+  onReady?(): void;
+  onState?(state: string): void;
+  onGesture?(gesture: MascotGesture): void;
+}
+
+export default function Mascot({ ref, size = 96, initial, onReady, onState, onGesture }: Props) {
   const el = useRef<ArcElement>(null);
   const ready = useRef<Promise<void> | null>(null);
   const lastPlay = useRef(0);
 
   const [failed, setFailed] = useState(false);
 
+  // Keep the latest callbacks without re-running the effects below.
+  const cb = useRef({ onReady, onState, onGesture });
+  useEffect(() => {
+    cb.current = { onReady, onState, onGesture };
+  });
+
   useEffect(() => {
     const p = loadScript();
     ready.current = p;
-    p.catch(() => setFailed(true));
+    p.then(
+      () => cb.current.onReady?.(),
+      () => setFailed(true),
+    );
+  }, []);
+
+  // Arc reports its own state changes and gestures (drag, drag the tip, press and hold).
+  useEffect(() => {
+    const arc = el.current;
+    if (!arc) return;
+    const state = (e: Event) => cb.current.onState?.((e as CustomEvent<string>).detail);
+    const gesture = (e: Event) => cb.current.onGesture?.((e as CustomEvent<MascotGesture>).detail);
+    arc.addEventListener("arc-state", state);
+    arc.addEventListener("arc-gesture", gesture);
+    return () => {
+      arc.removeEventListener("arc-state", state);
+      arc.removeEventListener("arc-gesture", gesture);
+    };
   }, []);
 
   useImperativeHandle(ref, () => ({
@@ -105,7 +146,7 @@ export default function Mascot({ ref, size = 96 }: { ref?: Ref<MascotHandle>; si
   return (
     // SVG fill attributes can't read CSS variables, so --arc reaches Arc through currentColor.
     <div className="pointer-events-auto" style={{ color: "var(--arc)" }} aria-hidden="true">
-      <arc-mascot ref={el} size={String(size)} color="currentColor" />
+      <arc-mascot ref={el} size={String(size)} color="currentColor" state={initial} />
     </div>
   );
 }

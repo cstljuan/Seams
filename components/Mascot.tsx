@@ -17,12 +17,13 @@ export interface MascotHandle {
   play(name: MascotReaction): Promise<void>;
 }
 
+// The only method we rely on, so new mascot art can be swapped in.
+// play() should return a Promise that resolves when a one-shot reaction ends.
 interface ArcElement extends HTMLElement {
-  play(name: string): Promise<void>;
-  set(name: string): ArcElement;
+  play(name: string): Promise<void> | void;
 }
 
-// These hold until something else plays. Everything else is a one-shot that returns to the resting state.
+// These hold until something else plays. The rest are one-shots.
 const LOOPING: MascotReaction[] = ["idle", "thinking", "sleep"];
 
 declare module "react" {
@@ -55,6 +56,7 @@ function loadScript(): Promise<void> {
 export default function Mascot({ ref, size = 96 }: { ref?: Ref<MascotHandle>; size?: number }) {
   const el = useRef<ArcElement>(null);
   const ready = useRef<Promise<void> | null>(null);
+  const lastPlay = useRef(0);
 
   useEffect(() => {
     ready.current = loadScript();
@@ -62,13 +64,16 @@ export default function Mascot({ ref, size = 96 }: { ref?: Ref<MascotHandle>; si
 
   useImperativeHandle(ref, () => ({
     async play(name) {
+      const id = ++lastPlay.current;
       await ready.current;
       const arc = el.current;
       if (!arc?.play) return;
-      // One-shots go back to the resting state when done. Make that idle,
-      // otherwise they would fall back to an earlier "thinking" or "sleep".
-      if (!LOOPING.includes(name)) arc.set("idle");
-      await arc.play(name);
+      const done = arc.play(name);
+      // After a one-shot, go back to idle, not to an earlier "thinking" or "sleep".
+      // Only when play() tells us it finished, and no other reaction started since.
+      if (LOOPING.includes(name) || !(done instanceof Promise)) return;
+      await done;
+      if (id === lastPlay.current) await arc.play("idle");
     },
   }));
 

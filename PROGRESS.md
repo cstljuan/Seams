@@ -4,7 +4,7 @@ Update your row when you start (in progress) and finish (done, with PR link).
 
 | # | Task | Owner | Status | Blocked by | PR |
 |---|---|---|---|---|---|
-| 1 | Repo foundation: Next.js app shell, docs, fixtures, test setup | Juan | done via #4 (turf, mongodb, .env.example, READMEs to follow) | | [#4](https://github.com/cstljuan/Seams/pull/4) |
+| 1 | Repo foundation: Next.js app shell, docs, fixtures, test setup | Juan | done via #4, extras on `claude/foundation-setup-merge-v4r8fo` | | [#4](https://github.com/cstljuan/Seams/pull/4) |
 | 2 | Brand guide v2 (logo, mascot, palette) | Juan | todo | | |
 | 3 | Figma wireframes from the paper sketch | Juan | todo | | |
 | 4 | Sample data in contract shape (10 projects, 6 overlaps) | Juan | done (in fixtures) | | |

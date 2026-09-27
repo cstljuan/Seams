@@ -109,7 +109,7 @@ class ArcMascot extends HTMLElement {
     const loop = now => { this.frame(now); this.raf = requestAnimationFrame(loop); }; this.raf = requestAnimationFrame(loop);
   }
   disconnectedCallback() {
-    cancelAnimationFrame(this.raf); window.removeEventListener('pointermove', this.onMove); window.removeEventListener('pointerup', this.onUp);
+    this._stop(); cancelAnimationFrame(this.raf); window.removeEventListener('pointermove', this.onMove); window.removeEventListener('pointerup', this.onUp);
   }
   attributeChangedCallback(n, o, v) {
     if (!this.sp) return; if (n === 'state') this.set(v); if (n === 'color') this.applyColor();
@@ -126,15 +126,21 @@ class ArcMascot extends HTMLElement {
     if (name === 'alert' || name === 'wide') { this.sp.sy.v += 3; }
     this.dispatchEvent(new CustomEvent('arc-state', { detail: this.name }));
   }
-  set(name) { name = resolve(name); if (LOOPING.has(name) || !S[name]) { this.base = S[name] ? name : 'idle'; this._go(this.base); } else this.play(name); return this; }
+  // Stop the current one-shot, if any, and resolve its Promise so no caller waits forever.
+  _stop() { clearTimeout(this.tmr); this.tmr = null; const r = this.done; this.done = null; if (r) r(); }
+  set(name) { name = resolve(name); if (LOOPING.has(name) || !S[name]) { this._stop(); this.base = S[name] ? name : 'idle'; this._go(this.base); } else this.play(name); return this; }
+  // One-shots resolve when they end or when something else plays. Looping states resolve at once.
   play(name) {
     name = resolve(name); if (!S[name]) name = 'idle';
     if (LOOPING.has(name)) { this.set(name); return Promise.resolve(); }
-    clearTimeout(this.tmr); this._go(name);
-    return new Promise(res => { this.tmr = setTimeout(() => { this._go(this.base); res(); }, S[name].dur || 1400); });
+    this._stop(); this._go(name);
+    return new Promise(res => {
+      this.done = res;
+      this.tmr = setTimeout(() => { this.tmr = null; this.done = null; this._go(this.base); res(); }, S[name].dur || 1400);
+    });
   }
   startWaiting() { return this.set('waiting'); }
-  reset() { clearTimeout(this.tmr); return this.set('idle'); }
+  reset() { return this.set('idle'); }
   setLevel(v) { this.level = v == null ? null : Math.max(0, Math.min(1, v)); return this; }
 
   frame(now) {

@@ -5,7 +5,7 @@ Florida Grid Plan Monitor v8.0
 Weekly public-data monitor for future Florida transmission-line and substation projects.
 This version implements a Two-Wave Geoparsing System:
   - Wave 1: Classical spatial interpolation, address parsing, and GIS registry matching.
-  - Wave 2: If Wave 1 falls back to a regional proxy, the script invokes gemini-2.5-flash
+  - Wave 2: If Wave 1 falls back to a regional proxy, the script invokes gemini-3.6-flash
     equipped with Google Search grounding to discover exact utility land purchases or 
     environmental permits to overwrite the fallback coordinate.
 """
@@ -100,6 +100,26 @@ OVERPASS_API_URLS = [
 ]
 OSM_SOURCE_LABEL = "OpenStreetMap via Overpass API"
 FLORIDA_BBOX = (24.3963, -87.6349, 31.0009, -79.9743)
+
+ENV_FILE = Path(".env")
+GEMINI_MODEL = "gemini-3.6-flash"
+
+
+def load_env_file(path: Path = ENV_FILE) -> None:
+    """Load KEY=VALUE pairs from .env. Existing environment variables win."""
+    if not path.exists():
+        return
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_env_file()
+
 
 # ---------------- Persistent SQLite Cache ----------------
 
@@ -2067,7 +2087,7 @@ def _execute_gemini_wave2(record: ProjectRecord) -> ProjectRecord:
         """
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=config
         )

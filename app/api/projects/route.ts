@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { MongoClient } from "mongodb";
+import { DB_NAME, SOURCE_HEADER } from "@/lib/mongo";
 import type { Project } from "@/lib/data";
 
 export const runtime = "nodejs";
@@ -28,11 +29,16 @@ export async function GET() {
     try {
       await client.connect();
       const features = await client
-        .db()
+        .db(DB_NAME)
         .collection<Project>("projects")
         .find({}, { projection: { _id: 0 } })
         .toArray();
-      if (features.length) return Response.json({ type: "FeatureCollection", features });
+      if (features.length) {
+        return Response.json(
+          { type: "FeatureCollection", features },
+          { headers: { [SOURCE_HEADER]: "atlas" } },
+        );
+      }
     } catch {
       // Use the local data when MongoDB cannot be reached.
     } finally {
@@ -41,7 +47,7 @@ export async function GET() {
   }
 
   try {
-    return Response.json(await readLocalProjects());
+    return Response.json(await readLocalProjects(), { headers: { [SOURCE_HEADER]: "local" } });
   } catch {
     return Response.json({ error: "Project data is unavailable" }, { status: 500 });
   }

@@ -22,6 +22,7 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 16 | Deploy + free GoDaddy domain | Juan | in progress: main build fixed on `cstljuan/fix-main-build`, Vercel next | | |
 | 17 | Pitch script (3 min + 5 min) | Juan, Charles | todo | | |
 | 18 | Demo video | Juan | todo | 14 | |
+| 19 | Desktop experience: framed map, menu, methodology, states, Arc wiring, coordination brief | Juan (Session 1) | done on `cstljuan/desktop-experience`, not pushed | | |
 
 ## Checkpoints (tonight)
 - 20:00 deployed app shows the 10 sample projects and 6 overlaps, ranked

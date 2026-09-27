@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { buildBrief, scheduleText } from "./brief";
 import type { Overlap, Project } from "@/lib/data";
 import { ChevronIcon, ClockIcon, InfoIcon } from "./icons";
 import {
@@ -84,7 +85,7 @@ export default function OverlapList({ overlaps, index, selectedId, onSelect }: P
                       {formatKm(o.distance_km)}
                       {o.approximate && <span className="ml-1 font-sans text-muted">approx.</span>}
                     </span>
-                    {o.time_overlap && <ClockIcon className="h-4 w-4 text-accent" label="Build windows overlap" />}
+                    {o.time_overlap && <ClockIcon className="h-4 w-4 text-accent" label="In-service dates within a year" />}
                     <span title={`Tier ${o.tier}: ${TIER_LABELS[o.tier]}`}>
                       <InfoIcon className="h-4 w-4" label={`Tier ${o.tier}`} />
                     </span>
@@ -139,9 +140,12 @@ function Details({ overlap: o, pair }: { overlap: Overlap; pair: [Project, Proje
         <span className="font-mono">{formatDays(o.time_gap_days)}</span>
         {o.time_overlap ? (
           <span className="ml-1.5 inline-flex items-center gap-1 text-accent">
-            <ClockIcon className="h-3.5 w-3.5" /> build windows overlap
+            <ClockIcon className="h-3.5 w-3.5" /> schedule match
           </span>
-        ) : null}
+        ) : (
+          <span className="ml-1.5 text-muted">not a schedule match</span>
+        )}
+        <span className="mt-0.5 block text-muted">{scheduleText(o)}</span>
       </Row>
       <Row label="In service">
         {pair.map((p) => (
@@ -163,10 +167,11 @@ function Details({ overlap: o, pair }: { overlap: Overlap; pair: [Project, Proje
             <span className="font-mono">
               {formatUsd(o.cost.p10)} to {formatUsd(o.cost.p90)}
             </span>
-            <span className="text-muted"> (P10 to P90 estimate)</span>
+            <span className="text-muted"> (P10 to P90, median {formatUsd(o.cost.p50)})</span>
+            <span className="mt-0.5 block text-muted">Model estimate from public benchmarks. Not a utility quote or guaranteed savings.</span>
           </>
         ) : (
-          <span className="text-muted">Not estimated yet</span>
+          <span className="text-muted">Unavailable: the cost model has no estimate for this pair.</span>
         )}
       </Row>
       <Row label="Sources">
@@ -183,7 +188,50 @@ function Details({ overlap: o, pair }: { overlap: Overlap; pair: [Project, Proje
           </span>
         ))}
       </Row>
+      <dt className="sr-only">Actions</dt>
+      <dd className="col-span-2 pt-1">
+        <BriefActions overlap={o} pair={pair} />
+      </dd>
     </dl>
+  );
+}
+
+// Copy or download a plain-text coordination brief. Nothing leaves the browser.
+function BriefActions({ overlap, pair }: { overlap: Overlap; pair: [Project, Project] }) {
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+  const text = () => buildBrief(overlap, pair);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text());
+      setCopied("copied");
+    } catch {
+      setCopied("failed");
+    }
+    setTimeout(() => setCopied("idle"), 2500);
+  };
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([text()], { type: "text/markdown" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `seams-brief-${overlap.id}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const btn = "rounded-lg border border-line bg-surface px-2.5 py-1.5 font-medium hover:bg-hover active:translate-y-px";
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="font-medium">Coordination brief</span>
+      <button type="button" onClick={copy} className={btn}>
+        {copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : "Copy"}
+      </button>
+      <button type="button" onClick={download} className={btn}>
+        Download .md
+      </button>
+      <span className="w-full text-muted">A draft for people to review. Nothing is sent or saved.</span>
+      <span className="sr-only" aria-live="polite">
+        {copied === "copied" ? "Brief copied" : copied === "failed" ? "Could not copy" : ""}
+      </span>
+    </div>
   );
 }
 

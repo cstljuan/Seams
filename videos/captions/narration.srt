@@ -1,0 +1,27 @@
+1
+00:00:00,300 --> 00:00:07,700
+Utilities plan their projects separately. Where two plans come close, who is checking?
+
+2
+00:00:08,300 --> 00:00:19,700
+Seams checks how close each cross-utility pair is, and whether their in-service dates fall within a year. Start dates are not in the data yet.
+
+3
+00:00:20,300 --> 00:00:31,000
+The live app: ten sample projects, six cross-utility pairs, ranked by distance. Turn on time overlaps only.
+
+4
+00:00:31,000 --> 00:00:51,700
+Pair two: Georgia Power McIntosh–Purrysburg and Dominion Jasper–Okatie. About 9 km apart, tier 4, in service 152 days apart. Every number shows its accuracy and source.
+
+5
+00:00:52,300 --> 00:01:07,700
+Modelled cost of not coordinating: about $17K to $30K, a P10 to P90 range from public benchmarks. An estimate, not a quote.
+
+6
+00:01:08,300 --> 00:01:20,700
+Real today: sample data, a tested engine, MongoDB Atlas storage, a live app. Not yet: full filings, start dates, exact line routes.
+
+7
+00:01:21,300 --> 00:01:29,700
+Seams. Where planned grid projects meet.

@@ -6,8 +6,8 @@
 |---|---|---|---|---|---|
 | 1 | 0–240 | 0–8 s | Hook | Two utility lines draw in, lean toward each other; a gold dashed gap appears | "Two utilities. Two separate plans." → "Where their projects come close, who is checking?" |
 | 2 | 240–600 | 8–20 s | Concept | Tier rings + closest link (left), in-service timeline + 365-day bracket (right). Labelled "Concept · not to scale" | "Close in space", "Close in time", "Seams checks both for each cross-utility pair." |
-| 3 | 600–1560 | 20–52 s | Product | Real production footage: overview, time-overlap toggle, select pair #2, map zoom, push-in on details | 4 captions with Arc; "LIVE PRODUCTION · seams-coral.vercel.app · captured 27 Sep 2026" |
-| 4 | 1560–2040 | 52–68 s | Cost | $17.2K – $30.5K, P10/P50/P90 bar, what it counts, how, limits | Qualifier "An estimate range (P10 to P90), not a quote or a measured saving." shown with the number |
+| 3 | 600–1520 | 20–50.7 s | Product | Real production footage: overview, time-overlap toggle, select pair #2, map zoom, push-in on details | 4 captions with Arc; "LIVE PRODUCTION · seams-coral.vercel.app · captured 27 Sep 2026" |
+| 4 | 1520–2040 | 50.7–68 s | Cost | $17.2K – $30.5K, P10/P50/P90 bar, what it counts, how, limits | Qualifier "An estimate range (P10 to P90), not a quote or a measured saving." shown with the number |
 | 5 | 2040–2430 | 68–81 s | Proof | Four rows: Data, Engine, Storage, App; then "Not yet" | |
 | 6 | 2430–2700 | 81–90 s | Close | The two lines meet at the centre, logo resolves | "Where planned grid projects meet." + seams-coral.vercel.app |
 

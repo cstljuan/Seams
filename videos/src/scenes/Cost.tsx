@@ -7,8 +7,8 @@ import { PAIR } from "../data";
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 const k = (n: number) => `$${(n / 1000).toFixed(1)}K`;
 
-// 52–68 s. The modelled range and its qualifier, always on screen together.
-export const Cost: React.FC<{ len?: number }> = ({ len = 480 }) => {
+// 50.7–68 s. The modelled range and its qualifier, always on screen together.
+export const Cost: React.FC<{ len?: number }> = ({ len = 520 }) => {
   const frame = useCurrentFrame();
   const out = useExit(len - 14, 14);
   const head = useEnter(8);

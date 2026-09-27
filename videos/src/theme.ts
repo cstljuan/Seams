@@ -22,8 +22,8 @@ export const MONO = "'DejaVu Sans Mono', ui-monospace, monospace";
 export const SCENES = {
   hook: [0, 240],
   concept: [240, 600],
-  product: [600, 1560],
-  cost: [1560, 2040],
+  product: [600, 1520],
+  cost: [1520, 2040],
   proof: [2040, 2430],
   close: [2430, 2700],
 } as const;

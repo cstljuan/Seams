@@ -7,8 +7,8 @@ import { CAPTURED, COUNTS, LIVE_URL } from "../data";
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
 // Real footage: headless Chromium screencast of the production app, 1600x900, shown at 1.2x.
-// Timeline markers from the capture log (clip starts 2.2 s in, after the map has loaded).
-const TRIM_S = 2.2;
+// Timeline markers from the capture log (clip starts 3.6 s in, once the map and list have loaded).
+const TRIM_S = 3.6;
 
 type Cue = { from: number; to: number; text: React.ReactNode };
 
@@ -54,17 +54,17 @@ const Caption: React.FC<{ cue: Cue; align: "map" | "center" }> = ({ cue, align }
 };
 
 export const Product: React.FC<{ len?: number; startS?: number; cues?: Cue[]; zoomAt?: number }> = ({
-  len = 960,
+  len = 920,
   startS = TRIM_S,
   cues,
-  zoomAt = 610,
+  zoomAt = 572,
 }) => {
   const frame = useCurrentFrame();
   const list: Cue[] = cues ?? [
-    { from: 12, to: 180, text: <>The live app: {COUNTS.projects} sample projects, {COUNTS.overlaps} cross-utility pairs, ranked by distance.</> },
-    { from: 192, to: 340, text: <>Filter to time overlaps: in-service dates within a year.</> },
-    { from: 356, to: 598, text: <>Select pair #2. The map zooms to it and draws the closest link.</> },
-    { from: 640, to: 945, text: <>Distance, tier, timing, accuracy, cost range and source, in one place.</> },
+    { from: 12, to: 140, text: <>The live app: {COUNTS.projects} sample projects, {COUNTS.overlaps} cross-utility pairs, ranked by distance.</> },
+    { from: 152, to: 300, text: <>Filter to time overlaps: in-service dates within a year.</> },
+    { from: 318, to: 560, text: <>Select pair #2. The map zooms to it and draws the closest link.</> },
+    { from: 606, to: 905, text: <>Distance, tier, timing, accuracy, cost range and source, in one place.</> },
   ];
   // Push in on the details panel so it can be read. Box from the capture: x 1138–1583, y 224–630 (of 1600x900).
   const z = interpolate(frame, [zoomAt, zoomAt + 36], [0, 1], { ...clamp, easing: Easing.inOut(Easing.cubic) });

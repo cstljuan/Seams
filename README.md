@@ -2,7 +2,7 @@
 
 # Seams
 
-**Where planned grid projects meet.** Live at **[seams.design](https://seams.design)** · [Devpost](https://devpost.com/software/seams)
+**Where planned grid projects meet.** Live at **[www.seams.design](https://www.seams.design)** · [Devpost](https://devpost.com/software/seams)
 
 Seams maps planned electric utility projects and highlights nearby work that could be coordinated.
 It helps teams spot shared outage windows, access, logistics, crews, and equipment opportunities.

@@ -66,7 +66,8 @@ function How() {
       </ol>
       <p className="text-muted">
         Arc, the lightning bolt, reacts to what happens: thinking while data loads, pointing when you open a pair,
-        warning on a schedule match, puzzled when filters hide everything, asleep when you step away.
+        warning on a schedule match, puzzled when filters hide everything, asleep when you step away. Click Arc for
+        tips, drag him, or press and hold for a squeeze.
       </p>
       <p className="text-muted">Keyboard: Up and Down move through the list, Enter opens a pair, Escape closes it.</p>
     </>

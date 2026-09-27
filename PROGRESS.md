@@ -4,8 +4,8 @@ Update your row when you start (in progress) and finish (done, with PR link).
 
 | # | Task | Owner | Status | Blocked by | PR |
 |---|---|---|---|---|---|
-| 1 | Repo foundation: Next.js app shell, docs, fixtures, test setup | Juan | done via #4, extras on `claude/foundation-setup-merge-v4r8fo` | | [#4](https://github.com/cstljuan/Seams/pull/4) |
-| 2 | Brand guide v2 (logo, mascot, palette) | Juan | todo | | |
+| 1 | Repo foundation: Next.js app shell, docs, fixtures, test setup | Juan | done | | [#4](https://github.com/cstljuan/Seams/pull/4), [#5](https://github.com/cstljuan/Seams/pull/5), [#6](https://github.com/cstljuan/Seams/pull/6) |
+| 2 | Brand guide v2 (logo, mascot, palette) | Juan | in progress: Arc v3 on `cstljuan/arc-v3`, Utility Navy light + dark on `cstljuan/theme-navy` | | |
 | 3 | Figma wireframes from the paper sketch | Juan | todo | | |
 | 4 | Sample data in contract shape (10 projects, 6 overlaps) | Juan | done (in fixtures) | | |
 | 5 | Extract DESC + GPC projects from the two PDFs | Alex | todo | | |
@@ -19,7 +19,7 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 13 | Sidebar: search, date range, time-only toggle, ranked list, expandable row | Brent | done (on fixtures; API swap is next) | 1 | [#4](https://github.com/cstljuan/Seams/pull/4) |
 | 14 | Select overlap: zoom map, draw line, show details | Brent | done (on fixtures; API swap is next) | 12, 13 | [#4](https://github.com/cstljuan/Seams/pull/4) |
 | 15 | Mascot component in the corner, wired to reactions | Brent | done (on fixtures; API swap is next) | 1 | [#4](https://github.com/cstljuan/Seams/pull/4) |
-| 16 | Deploy + free GoDaddy domain | Juan | todo | 1 | |
+| 16 | Deploy + free GoDaddy domain | Juan | in progress: main build fixed on `cstljuan/fix-main-build`, Vercel next | | |
 | 17 | Pitch script (3 min + 5 min) | Juan, Charles | todo | | |
 | 18 | Demo video | Juan | todo | 14 | |
 

@@ -78,7 +78,8 @@ export default function Mascot({ ref, size = 96 }: { ref?: Ref<MascotHandle>; si
   }));
 
   return (
-    <div className="pointer-events-auto text-text" aria-hidden="true">
+    // SVG fill attributes can't read CSS variables, so --arc reaches Arc through currentColor.
+    <div className="pointer-events-auto" style={{ color: "var(--arc)" }} aria-hidden="true">
       <arc-mascot ref={el} size={String(size)} color="currentColor" />
     </div>
   );

@@ -31,18 +31,18 @@ export function closestDistanceKm(
   }
 
   if (a.geometry.type === "Point" && b.geometry.type === "LineString") {
-    candidates.push(...lineCandidates(b, [a.geometry.coordinates]));
+    candidates.push(...lineCandidates(b as Feature<LineString>, [a.geometry.coordinates]));
   } else if (a.geometry.type === "LineString" && b.geometry.type === "Point") {
     candidates.push(
-      ...lineCandidates(a, [b.geometry.coordinates]).map(({ km, points }) => ({
+      ...lineCandidates(a as Feature<LineString>, [b.geometry.coordinates]).map(({ km, points }) => ({
         km,
         points: [points[1], points[0]] as [LngLat, LngLat],
       })),
     );
   } else if (a.geometry.type === "LineString" && b.geometry.type === "LineString") {
-    candidates.push(...lineCandidates(b, a.geometry.coordinates));
+    candidates.push(...lineCandidates(b as Feature<LineString>, a.geometry.coordinates));
     candidates.push(
-      ...lineCandidates(a, b.geometry.coordinates).map(({ km, points }) => ({
+      ...lineCandidates(a as Feature<LineString>, b.geometry.coordinates).map(({ km, points }) => ({
         km,
         points: [points[1], points[0]] as [LngLat, LngLat],
       })),

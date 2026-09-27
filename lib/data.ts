@@ -58,8 +58,8 @@ export interface SeamsData {
   overlaps: Overlap[];
 }
 
-// Switch to "api" when /api/overlaps is ready. Same shapes, so nothing else changes.
-const SOURCE: "fixtures" | "api" = "fixtures";
+// "api" reads /api/projects and /api/overlaps (Atlas, then local JSON). Same shapes as the fixtures.
+const SOURCE: "fixtures" | "api" = "api";
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);

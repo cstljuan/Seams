@@ -1,0 +1,176 @@
+[
+  {
+    "id": "OVL_DESC_2_GPC_1",
+    "rank": 1,
+    "a": "DESC_2",
+    "b": "GPC_1",
+    "distance_km": 6.58,
+    "tier": 3,
+    "time_gap_days": 3074,
+    "time_overlap": false,
+    "closest_points": [
+      [
+        -82.195931,
+        33.660127
+      ],
+      [
+        -82.1822895,
+        33.6020605
+      ]
+    ],
+    "approximate": true,
+    "cost": {
+      "p10": 54711,
+      "p50": 68908,
+      "p90": 84148,
+      "currency": "USD",
+      "trucks_saved": 0.57,
+      "co2_t": 0.007
+    }
+  },
+  {
+    "id": "OVL_DESC_3_GPC_2",
+    "rank": 2,
+    "a": "DESC_3",
+    "b": "GPC_2",
+    "distance_km": 9.09,
+    "tier": 4,
+    "time_gap_days": 152,
+    "time_overlap": true,
+    "closest_points": [
+      [
+        -81.0785475,
+        32.346439000000004
+      ],
+      [
+        -81.175112,
+        32.352116
+      ]
+    ],
+    "approximate": true,
+    "cost": {
+      "p10": 17231,
+      "p50": 23365,
+      "p90": 30485,
+      "currency": "USD",
+      "trucks_saved": 0,
+      "co2_t": 0
+    }
+  },
+  {
+    "id": "OVL_DESC_3_GPC_3",
+    "rank": 3,
+    "a": "DESC_3",
+    "b": "GPC_3",
+    "distance_km": 12.15,
+    "tier": 4,
+    "time_gap_days": 517,
+    "time_overlap": false,
+    "closest_points": [
+      [
+        -81.0785475,
+        32.346439000000004
+      ],
+      [
+        -81.1957885,
+        32.3004085
+      ]
+    ],
+    "approximate": true,
+    "cost": {
+      "p10": 14339,
+      "p50": 19322,
+      "p90": 25031,
+      "currency": "USD",
+      "trucks_saved": 0,
+      "co2_t": 0
+    }
+  },
+  {
+    "id": "OVL_DESC_1_GPC_1",
+    "rank": 4,
+    "a": "DESC_1",
+    "b": "GPC_1",
+    "distance_km": 12.9,
+    "tier": 4,
+    "time_gap_days": 3074,
+    "time_overlap": false,
+    "closest_points": [
+      [
+        -82.051362,
+        33.562599
+      ],
+      [
+        -82.1822895,
+        33.6020605
+      ]
+    ],
+    "approximate": true,
+    "cost": {
+      "p10": 10992,
+      "p50": 15198,
+      "p90": 19454,
+      "currency": "USD",
+      "trucks_saved": 0,
+      "co2_t": 0
+    }
+  },
+  {
+    "id": "OVL_DESC_5_GPC_2",
+    "rank": 5,
+    "a": "DESC_5",
+    "b": "GPC_2",
+    "distance_km": 23.08,
+    "tier": 4,
+    "time_gap_days": 365,
+    "time_overlap": true,
+    "closest_points": [
+      [
+        -80.9429395,
+        32.2843925
+      ],
+      [
+        -81.175112,
+        32.352116
+      ]
+    ],
+    "approximate": true,
+    "cost": {
+      "p10": 14020,
+      "p50": 19279,
+      "p90": 25244,
+      "currency": "USD",
+      "trucks_saved": 0,
+      "co2_t": 0
+    }
+  },
+  {
+    "id": "OVL_DESC_5_GPC_3",
+    "rank": 6,
+    "a": "DESC_5",
+    "b": "GPC_3",
+    "distance_km": 23.83,
+    "tier": 4,
+    "time_gap_days": 730,
+    "time_overlap": false,
+    "closest_points": [
+      [
+        -80.9429395,
+        32.2843925
+      ],
+      [
+        -81.1957885,
+        32.3004085
+      ]
+    ],
+    "approximate": true,
+    "cost": {
+      "p10": 11330,
+      "p50": 15271,
+      "p90": 19413,
+      "currency": "USD",
+      "trucks_saved": 0,
+      "co2_t": 0
+    }
+  }
+]

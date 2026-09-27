@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { MongoClient } from "mongodb";
+import { DB_NAME, SOURCE_HEADER } from "@/lib/mongo";
 import type { Overlap } from "@/lib/data";
 
 export const runtime = "nodejs";
@@ -22,12 +23,14 @@ export async function GET() {
     try {
       await client.connect();
       const overlaps = await client
-        .db()
+        .db(DB_NAME)
         .collection<Overlap>("overlaps")
         .find({}, { projection: { _id: 0 } })
         .sort({ rank: 1 })
         .toArray();
-      return Response.json(overlaps);
+      if (overlaps.length) {
+        return Response.json(overlaps, { headers: { [SOURCE_HEADER]: "atlas" } });
+      }
     } catch {
       // Use the local data when MongoDB cannot be reached.
     } finally {
@@ -36,7 +39,7 @@ export async function GET() {
   }
 
   try {
-    return Response.json(await readLocalOverlaps());
+    return Response.json(await readLocalOverlaps(), { headers: { [SOURCE_HEADER]: "local" } });
   } catch {
     return Response.json({ error: "Overlap data is unavailable" }, { status: 500 });
   }

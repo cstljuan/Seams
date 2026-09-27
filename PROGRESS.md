@@ -12,9 +12,9 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 6 | Geocode substations (Overpass), line geometry where found | Alex | todo | 5 | |
 | 7 | `data/projects.geojson` real data | Alex | todo | 6 | |
 | 8 | MongoDB Atlas cluster + seed script | Alex | todo | 7 | |
-| 9 | Overlap engine: closest distance, tier, time overlap, ranking + tests | Charles | todo | | |
-| 10 | Cost model + range (P10/P50/P90) | Charles | todo | | |
-| 11 | Build `data/overlaps.json` from projects; `/api/overlaps` (Mongo, JSON fallback) | Charles | todo | 9 | |
+| 9 | Overlap engine: closest distance, tier, time overlap, ranking + tests | Charles | in progress | | |
+| 10 | Cost model + range (P10/P50/P90) | Charles | in progress | | |
+| 11 | Build `data/overlaps.json` from projects; `/api/overlaps` (Mongo, JSON fallback) | Charles | in progress | 9 | |
 | 12 | Map with both utilities, markers by type, overlap lines by tier | Brent | done (on fixtures; API swap is next) | 1 | [#4](https://github.com/cstljuan/Seams/pull/4) |
 | 13 | Sidebar: search, date range, time-only toggle, ranked list, expandable row | Brent | done (on fixtures; API swap is next) | 1 | [#4](https://github.com/cstljuan/Seams/pull/4) |
 | 14 | Select overlap: zoom map, draw line, show details | Brent | done (on fixtures; API swap is next) | 12, 13 | [#4](https://github.com/cstljuan/Seams/pull/4) |

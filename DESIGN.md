@@ -25,12 +25,12 @@ Tier colour: a 4-step scale from most severe (tier 1) to least (tier 4). Final c
 
 ## Theme tokens (placeholder values, will change)
 - `--bg`, `--surface`, `--text`, `--muted`, `--accent`, `--tier-1..4`, `--utility-a`, `--utility-b`
-- Font: system UI stack for now. Numbers in a monospace font.
+- Font: Afacad (body, loaded with `next/font`, variable `--font-afacad`), falling back to the system UI stack. Numbers in a monospace font.
 - Radius, spacing: 4 / 8 / 12 / 16 / 24.
 
 ## Mascot (placeholder)
 Working name: **Arc**. A lightning bolt with a face. One solid colour, no gradients.
-Placeholder web component: `brand/arc-mascot.js`, `<arc-mascot size="96" color="var(--text)">`.
+Web component (Arc v3): `public/brand/arc-mascot.js`, `<arc-mascot size="96" color="var(--text)">`.
 Reactions to wire in the app:
 - app loads: `idle`
 - user searches or filters: `thinking` while the list updates, then `idle`
@@ -40,6 +40,22 @@ Reactions to wire in the app:
 - nothing matches the filters: `confused`
 - idle for 60 s: `sleep`
 The final mascot art may change; keep calls to `play(name)` so the art can be swapped.
+
+## Desktop shell (2026-09-27)
+- Header: merged logo (`public/brand/logo-full-light.svg` / `logo-full-dark.svg`), tagline, and a Menu (Explore overlaps, How it works, Data and methodology, Reset demo). Favicon is `app/icon.svg` (the Arc mark).
+- Map opens framed on the project bounds, not the continent. Bottom toolbar: Overview, Focus selected, Reset view.
+- Selecting a pair dims the other markers and lines and labels both projects on the map.
+- States: loading pill over the map, API error with Try again, tile failure notice (the list still works), empty result that names the filter that hid everything.
+- Details: "schedule match" only means in-service dates within 365 days. Cost shown as P10 to P90 with the median, labelled as a model estimate.
+- Coordination brief: Copy or Download .md. Client-side only; nothing is sent or saved.
+
+## Arc reactions (as wired)
+- data loading: `thinking`; loaded: `happy`, then `idle`
+- filters change: `thinking`, then `idle`, or `confused` when nothing matches
+- open a pair: `alert` if it is a schedule match or tier 1 or 2, otherwise `found`
+- data fails: `error`; Try again goes back to `thinking`
+- 60 s without input: `sleep`; any input wakes it
+- If the Arc script fails or takes over 8 s, Arc is hidden and the app keeps working.
 
 ## Rules
 - Never show a cost as one exact number; show a range.

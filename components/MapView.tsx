@@ -1,9 +1,9 @@
 "use client";
 
-import { useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import Map, { Layer, Marker, NavigationControl, Source, type MapRef } from "react-map-gl/maplibre";
 import type { LngLat, Overlap, Project, ProjectType } from "@/lib/data";
-import { cleanText, utilityVar } from "./overlaps";
+import { cleanText, projectCoords, utilityVar } from "./overlaps";
 import { useColorScheme } from "./useColorScheme";
 import { useThemeColors } from "./useThemeColors";
 
@@ -11,10 +11,14 @@ const STYLE_URLS = {
   light: "https://tiles.openfreemap.org/styles/positron",
   dark: "https://tiles.openfreemap.org/styles/dark",
 };
-const US_VIEW = { longitude: -96, latitude: 38.5, zoom: 3.4 };
+// Only used until the data arrives; then the camera fits the projects.
+const START_VIEW = { longitude: -81.6, latitude: 32.6, zoom: 6.3 };
+// Leaves room for the legend (top left) and Arc (bottom left).
+const FIT_PADDING = { top: 90, bottom: 60, left: 140, right: 70 };
 
 export interface MapHandle {
   fitBounds(bounds: [LngLat, LngLat]): void;
+  overview(): void;
   flyTo(center: LngLat, zoom?: number): void;
   resize(): void;
 }
@@ -27,17 +31,49 @@ interface Props {
   dimmedProjectIds: Set<string>;
   onSelect(id: string | null): void;
   onProjectClick(projectId: string): void;
+  onTileError?(): void;
 }
 
-export default function MapView({ ref, projects, overlaps, selectedId, dimmedProjectIds, onSelect, onProjectClick }: Props) {
+export default function MapView({ ref, projects, overlaps, selectedId, dimmedProjectIds, onSelect, onProjectClick, onTileError }: Props) {
   const map = useRef<MapRef>(null);
+  const [loaded, setLoaded] = useState(false);
+  const tileErrorSent = useRef(false);
+
+  const dataBounds = useMemo<[LngLat, LngLat] | null>(() => {
+    const pts = projects.flatMap(projectCoords);
+    if (!pts.length) return null;
+    const lngs = pts.map((p) => p[0]);
+    const lats = pts.map((p) => p[1]);
+    return [
+      [Math.min(...lngs), Math.min(...lats)],
+      [Math.max(...lngs), Math.max(...lats)],
+    ];
+  }, [projects]);
+
+  const overview = useCallback(
+    (duration = 1200) => {
+      if (dataBounds) map.current?.fitBounds(dataBounds, { padding: FIT_PADDING, maxZoom: 9, duration });
+    },
+    [dataBounds],
+  );
+
+  // Frame the real project region once both the map and the data are ready.
+  const framed = useRef(false);
+  useEffect(() => {
+    if (!loaded || !dataBounds || framed.current) return;
+    framed.current = true;
+    overview(0);
+  }, [loaded, dataBounds, overview]);
   const colors = useThemeColors();
   const scheme = useColorScheme();
   const [hovering, setHovering] = useState(false);
 
   useImperativeHandle(ref, () => ({
     fitBounds(bounds) {
-      map.current?.fitBounds(bounds, { padding: 96, maxZoom: 11, duration: 1400 });
+      map.current?.fitBounds(bounds, { padding: { ...FIT_PADDING, top: 110 }, maxZoom: 10, duration: 1400 });
+    },
+    overview() {
+      overview();
     },
     flyTo(center, zoom = 9) {
       map.current?.flyTo({ center, zoom, duration: 1400 });
@@ -80,7 +116,17 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
   return (
     <Map
       ref={map}
-      initialViewState={US_VIEW}
+      initialViewState={START_VIEW}
+      onLoad={() => setLoaded(true)}
+      onError={(e) => {
+        // Tile or style failures: tell the app once so the list can carry on alone.
+        if (tileErrorSent.current) return;
+        const msg = String((e as { error?: Error }).error?.message ?? "");
+        if (/fetch|tile|style|Failed|NetworkError|40\d|50\d/i.test(msg)) {
+          tileErrorSent.current = true;
+          onTileError?.();
+        }
+      }}
       mapStyle={STYLE_URLS[scheme]}
       style={{ width: "100%", height: "100%" }}
       interactiveLayerIds={["overlap-lines-hit"]}
@@ -91,7 +137,7 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (id) onSelect(id);
       }}
-      attributionControl={{ compact: true }}
+      attributionControl={{ compact: false }}
     >
       <NavigationControl position="top-right" showCompass={false} />
 
@@ -103,6 +149,7 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
             layout={{ "line-cap": "round" }}
             paint={{
               "line-width": 3,
+              "line-opacity": hasSelection ? 0.35 : 0.9,
               "line-color": ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]],
             }}
           />
@@ -140,7 +187,7 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
       {projects.map((p) => {
         const [lng, lat] = markerPoint(p);
         const isSelected = selectedProjects.has(p.properties.id);
-        const dimmed = dimmedProjectIds.has(p.properties.id) && !isSelected;
+        const dimmed = (dimmedProjectIds.has(p.properties.id) || (hasSelection && !isSelected)) && !isSelected;
         return (
           <Marker
             key={p.properties.id}
@@ -164,6 +211,19 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
             >
               <MarkerShape type={p.properties.type} />
             </div>
+            {isSelected && (
+              <div
+                className={`pointer-events-none absolute left-1/2 max-w-56 -translate-x-1/2 rounded-md ${
+                  p.properties.utility === "GPC" ? "bottom-full mb-2" : "top-full mt-2"
+                } border border-line bg-surface px-2 py-1 text-[11px] leading-tight text-text shadow-md`}
+                style={{ width: "max-content" }}
+              >
+                <span className="font-semibold" style={{ color: utilityVar(p.properties.utility) }}>
+                  {p.properties.utility}
+                </span>{" "}
+                <span className="line-clamp-2">{cleanText(p.properties.name)}</span>
+              </div>
+            )}
           </Marker>
         );
       })}

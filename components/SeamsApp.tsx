@@ -3,7 +3,9 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadData, type SeamsData } from "@/lib/data";
+import AppMenu from "./AppMenu";
 import FilterRow from "./FilterRow";
+import InfoDrawer, { type InfoTopic } from "./InfoDrawer";
 import { ChevronIcon } from "./icons";
 import LocationSearch from "./LocationSearch";
 import MapLegend from "./MapLegend";
@@ -29,6 +31,8 @@ export default function SeamsApp() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [info, setInfo] = useState<InfoTopic | null>(null);
+  const [tilesFailed, setTilesFailed] = useState(false);
   const map = useRef<MapHandle>(null);
   const mascot = useRef<MascotHandle>(null);
   const sleeping = useRef(false);
@@ -39,12 +43,13 @@ export default function SeamsApp() {
     return mascot.current?.play(name) ?? Promise.resolve();
   }, []);
 
-  // Load data.
+  // Load data. Arc thinks while it loads, then gives a short happy nod.
   const fetchData = useCallback(() => {
+    void play("thinking");
     loadData()
       .then((data) => {
         setLoad({ status: "ready", data });
-        void play("idle");
+        void play(data.overlaps.length ? "happy" : "confused");
       })
       .catch((err: unknown) => {
         setLoad({ status: "error", message: err instanceof Error ? err.message : String(err) });
@@ -111,7 +116,7 @@ export default function SeamsApp() {
   const select = useCallback(
     (id: string | null) => {
       setSelectedId(id);
-      const token = ++reactionToken.current;
+      ++reactionToken.current;
       if (!id || !data) {
         void play("idle");
         return;
@@ -119,9 +124,8 @@ export default function SeamsApp() {
       const o = data.overlaps.find((x) => x.id === id);
       if (!o) return;
       map.current?.fitBounds(overlapBounds(o, sides(o, index)));
-      void play(o.tier <= 2 ? "alert" : "found").then(() => {
-        if (o.time_overlap && token === reactionToken.current) void play("wide");
-      });
+      // Warn only for a real schedule match or a touching/very close pair. Otherwise just point at it.
+      void play(o.time_overlap || o.tier <= 2 ? "alert" : "found");
     },
     [data, index, play],
   );
@@ -152,6 +156,32 @@ export default function SeamsApp() {
     }
   }, []);
 
+  const resetDemo = useCallback(() => {
+    setFilters(EMPTY_FILTERS);
+    setSelectedId(null);
+    setInfo(null);
+    setSidebarOpen(true);
+    ++reactionToken.current;
+    map.current?.overview();
+    void play("idle");
+  }, [play]);
+
+  const focusSelected = useCallback(() => {
+    if (selected) map.current?.fitBounds(overlapBounds(selected, sides(selected, index)));
+  }, [selected, index]);
+
+  // Escape closes the open pair when focus is not in a field or the list (the list handles its own).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || info || !selectedId) return;
+      const t = e.target as HTMLElement;
+      if (t.closest("input, [role=menu], #sidebar ol")) return;
+      select(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [info, selectedId, select]);
+
   const onSearchBusy = useCallback(
     (busy: boolean) => {
       ++reactionToken.current;
@@ -171,7 +201,43 @@ export default function SeamsApp() {
           dimmedProjectIds={dimmedProjectIds}
           onSelect={select}
           onProjectClick={onProjectClick}
+          onTileError={() => setTilesFailed(true)}
         />
+
+        {load.status === "loading" && (
+          <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
+            <p role="status" className="rounded-full border border-line bg-surface px-4 py-1.5 text-xs shadow-sm">
+              Loading projects and overlaps…
+            </p>
+          </div>
+        )}
+
+        {tilesFailed && (
+          <div className="absolute inset-x-0 top-4 flex justify-center">
+            <p role="alert" className="rounded-xl border border-tier-2 bg-surface px-4 py-2 text-xs shadow-sm">
+              Map tiles could not load. The ranked list on the right still works.
+            </p>
+          </div>
+        )}
+
+        <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 gap-1 rounded-xl border border-line bg-surface/95 p-1 text-xs shadow-md">
+          <button type="button" onClick={() => map.current?.overview()} className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover">
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={focusSelected}
+            disabled={!selected}
+            className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            Focus selected
+          </button>
+          <button type="button" onClick={resetDemo} className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover">
+            Reset view
+          </button>
+        </div>
+
+        <InfoDrawer topic={info} onClose={() => setInfo(null)} />
 
         <div className="pointer-events-none absolute left-3 top-3">
           <MapLegend types={projectTypes} />
@@ -203,9 +269,24 @@ export default function SeamsApp() {
         }`}
       >
         <div className="flex min-w-[360px] flex-col gap-3 border-b border-line p-4">
-          <header className="flex items-baseline justify-between">
-            <h1 className="text-lg font-bold tracking-tight">Seams</h1>
-            <span className="text-xs text-muted">Where planned grid projects meet</span>
+          <header className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <h1 className="m-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/brand/logo-full-light.svg" alt="Seams" className="h-8 w-auto dark:hidden" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/brand/logo-full-dark.svg" alt="Seams" className="hidden h-8 w-auto dark:block" />
+              </h1>
+              <span className="text-xs leading-tight text-muted">Where planned grid projects meet</span>
+            </div>
+            <AppMenu
+              items={[
+                { label: "Explore overlaps", onSelect: () => { setInfo(null); setSidebarOpen(true); } },
+                { label: "How it works", onSelect: () => setInfo("how") },
+                { label: "Data and methodology", onSelect: () => setInfo("data") },
+                { label: "Reset demo", onSelect: resetDemo },
+              ]}
+            />
           </header>
           <LocationSearch onPlace={onPlace} onBusy={onSearchBusy} />
           <FilterRow filters={filters} onChange={changeFilters} />
@@ -232,7 +313,7 @@ export default function SeamsApp() {
             {load.status === "loading" && <LoadingList />}
             {load.status === "error" && <ErrorState message={load.message} onRetry={retry} />}
             {data && visible.length === 0 && (
-              <EmptyState filtered={hasFilters(filters)} onClear={() => changeFilters(EMPTY_FILTERS)} />
+              <EmptyState filters={filters} onClear={() => changeFilters(EMPTY_FILTERS)} />
             )}
             {data && visible.length > 0 && (
               <OverlapList overlaps={visible} index={index} selectedId={selected?.id ?? null} onSelect={select} />
@@ -262,13 +343,20 @@ function LoadingList() {
   );
 }
 
-function EmptyState({ filtered, onClear }: { filtered: boolean; onClear(): void }) {
+// Say which filter hid everything, so the fix is obvious.
+function emptyReason(f: Filters): string {
+  const parts: string[] = [];
+  if (f.start || f.end) parts.push(`no pair has both in-service dates ${f.start ? `after ${f.start}` : ""}${f.start && f.end ? " and " : ""}${f.end ? `before ${f.end}` : ""}`);
+  if (f.timeOnly) parts.push("“Time overlaps only” keeps just pairs with in-service dates within a year");
+  return parts.length ? `${parts.join("; ")}.` : "The data has no overlaps yet.";
+}
+
+function EmptyState({ filters, onClear }: { filters: Filters; onClear(): void }) {
+  const filtered = hasFilters(filters);
   return (
     <div className="rounded-xl border border-dashed border-line px-4 py-8 text-center" role="status">
       <p className="text-sm font-medium">No overlaps match</p>
-      <p className="mt-1 text-xs text-muted">
-        {filtered ? "Try a wider date range or turn off “Time overlaps only”." : "The data has no overlaps yet."}
-      </p>
+      <p className="mt-1 text-xs text-muted">{filtered ? emptyReason(filters) : "The data has no overlaps yet."}</p>
       {filtered && (
         <button type="button" onClick={onClear} className="mt-3 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs hover:bg-hover">
           Clear filters

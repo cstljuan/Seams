@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The product film is its own package with its own checks.
+    "videos/**",
   ]),
 ]);
 

@@ -1,7 +1,7 @@
-# Shellhacks-2026
+# Seams
 
-*One-line description of what this project does — update as the build takes shape.*
+Seams finds utility projects that overlap in place and time, so crews can dig once instead of twice. Built at ShellHacks 2026 for the Sperry Tech GridLock challenge.
 
 ## Getting started
 
-*Setup and run instructions — update once the stack is picked.*
+*Setup and run instructions will go here once the app lands on main.*

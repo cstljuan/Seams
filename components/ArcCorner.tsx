@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import ArcAccessoryPicker from "./ArcAccessoryPicker";
 import ArcColorPicker from "./ArcColorPicker";
 import Mascot, { type MascotGesture, type MascotHandle, type MascotReaction } from "./Mascot";
 
@@ -124,9 +125,10 @@ export default function ArcCorner({ ref, tips, hidden = false }: Props) {
       >
         <Mascot ref={mascot} size={SIZE} onState={onState} onGesture={onGesture} />
       </button>
-      {/* Pick any colour for Arc. */}
-      <div className="absolute bottom-1 left-[92px]">
+      {/* Dress Arc up: any colour, and something to wear. */}
+      <div className="absolute bottom-1 left-[92px] flex items-center gap-2">
         <ArcColorPicker disabled={hidden} />
+        <ArcAccessoryPicker disabled={hidden} />
       </div>
     </div>
   );

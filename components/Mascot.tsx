@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, useSyncExternalStore, type Ref } from "react";
+import { accessorySvg, arcAccessory } from "./arcAccessories";
 
 // Reactions used by the app. The mascot script supports more.
 export type MascotReaction =
@@ -92,6 +93,9 @@ export default function Mascot({ ref, size = 96, initial, onReady, onState, onGe
   const lastPlay = useRef(0);
 
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const accessory = useSyncExternalStore(arcAccessory.subscribe, arcAccessory.get, () => null);
+  const uid = useId().replace(/[^a-z0-9]/gi, "");
 
   // Keep the latest callbacks without re-running the effects below.
   const cb = useRef({ onReady, onState, onGesture });
@@ -103,10 +107,29 @@ export default function Mascot({ ref, size = 96, initial, onReady, onState, onGe
     const p = loadScript();
     ready.current = p;
     p.then(
-      () => cb.current.onReady?.(),
+      () => {
+        setLoaded(true);
+        cb.current.onReady?.();
+      },
       () => setFailed(true),
     );
   }, []);
+
+  // Put the accessory inside Arc's moving group (g.all in arc-mascot.js), so it follows every pose.
+  // If a new Arc drops that group, he just goes without.
+  useEffect(() => {
+    const all = el.current?.querySelector("svg > g.all");
+    if (!loaded || !all) return;
+    let g = all.querySelector<SVGGElement>(":scope > g.arc-accessory");
+    if (!g) {
+      g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class", "arc-accessory");
+      // The headlamp beam reaches past Arc; don't let it catch clicks meant for the map.
+      g.style.pointerEvents = "none";
+      all.appendChild(g);
+    }
+    g.innerHTML = accessorySvg(accessory, uid);
+  }, [loaded, accessory, uid]);
 
   // Arc reports its own state changes and gestures (drag, drag the tip, press and hold).
   useEffect(() => {

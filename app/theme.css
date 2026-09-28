@@ -15,6 +15,14 @@
   --arc-brand: #f5bc42;
   --arc: var(--arc-brand);
 
+  /* Arc's accessories (components/arcAccessories.ts). Same in light and dark. */
+  --arc-hat: #ff8a1f;
+  --arc-hat-shade: #d9660b;
+  --arc-gear: #26303d;
+  --arc-lamp: #fff4c2;
+  --arc-party: #7c5cff;
+  --arc-party-dots: #ff4f9a;
+
   /* Overlap tiers, most severe (1) to least (4). */
   --tier-1: #d92d20;
   --tier-2: #f0772b;

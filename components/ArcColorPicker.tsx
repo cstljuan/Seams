@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
+import { savedChoice } from "./savedChoice";
 
 // Any colour, picked with the browser's colour picker (the system colour wheel on a Mac).
 // Saved as a hex string; nothing saved means the brand gold (--arc-brand in app/theme.css).
@@ -15,36 +16,7 @@ function apply(color: string | null) {
   else root.removeProperty("--arc");
 }
 
-// Used when storage is blocked, so the choice still holds for this visit.
-let memory: string | null = null;
-
-function saved(): string | null {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY);
-    return value && HEX.test(value) ? value : null;
-  } catch {
-    return memory;
-  }
-}
-
-const listeners = new Set<() => void>();
-function subscribe(fn: () => void) {
-  listeners.add(fn);
-  return () => {
-    listeners.delete(fn);
-  };
-}
-
-function choose(color: string | null) {
-  memory = color;
-  try {
-    if (color) localStorage.setItem(STORAGE_KEY, color);
-    else localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Private mode or storage off: `memory` keeps it for this visit.
-  }
-  listeners.forEach((fn) => fn());
-}
+const arcColor = savedChoice(STORAGE_KEY, (value) => HEX.test(value));
 
 function brandColor() {
   return getComputedStyle(document.documentElement).getPropertyValue("--arc-brand").trim().toLowerCase();
@@ -57,7 +29,7 @@ interface Props {
 
 // Sits next to Arc in the map corner.
 export default function ArcColorPicker({ disabled }: Props) {
-  const color = useSyncExternalStore(subscribe, saved, () => null);
+  const color = useSyncExternalStore(arcColor.subscribe, arcColor.get, () => null);
   const brand = useSyncExternalStore(noSubscribe, brandColor, () => null);
   useEffect(() => apply(color), [color]);
 
@@ -79,7 +51,7 @@ export default function ArcColorPicker({ disabled }: Props) {
           disabled={disabled}
           // The input needs a hex value; with nothing saved, show the brand gold.
           value={color ?? brand ?? "#000000"}
-          onChange={(e) => choose(e.target.value)}
+          onChange={(e) => arcColor.set(e.target.value)}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
         />
       </span>
@@ -87,7 +59,7 @@ export default function ArcColorPicker({ disabled }: Props) {
         <button
           type="button"
           disabled={disabled}
-          onClick={() => choose(null)}
+          onClick={() => arcColor.set(null)}
           title="Back to Arc's gold"
           className="rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] text-muted shadow-sm hover:text-text"
         >

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ArcColorPicker from "./ArcColorPicker";
 import Mascot, { type MascotHandle } from "./Mascot";
 
 interface Props {
@@ -33,6 +34,8 @@ export default function LoadingScreen({ phase, overlapCount, target, onGone }: P
   const [stage, setStage] = useState<Stage>("loading");
   const [flight, setFlight] = useState<string | null>(null);
   const [filled, setFilled] = useState(false);
+  // Someone is picking a colour for Arc; wait for them before leaving.
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     shownAt.current = performance.now();
@@ -46,7 +49,7 @@ export default function LoadingScreen({ phase, overlapCount, target, onGone }: P
   }, []);
 
   useEffect(() => {
-    if (phase === "loading") return;
+    if (phase === "loading" || (phase === "ready" && picking)) return;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const wait = Math.max(0, MIN_SHOW_MS - (performance.now() - shownAt.current));
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -73,7 +76,7 @@ export default function LoadingScreen({ phase, overlapCount, target, onGone }: P
       later(wait + 750 + (reduced ? 250 : 800), onGone);
     }
     return () => timers.forEach(clearTimeout);
-  }, [phase, target, onGone]);
+  }, [phase, picking, target, onGone]);
 
   const leaving = stage === "leaving";
   const status = phase === "error" ? "Could not load the data" : stage === "loading" ? STEPS[step] : `Found ${overlapCount} overlaps`;
@@ -136,6 +139,9 @@ export default function LoadingScreen({ phase, overlapCount, target, onGone }: P
                 transition: stage !== "loading" ? "width 300ms ease-out" : "width 3.2s cubic-bezier(.1,.7,.2,1)",
               }}
             />
+          </div>
+          <div className="mt-5">
+            <ArcColorPicker disabled={leaving} onBusy={setPicking} />
           </div>
           <p key={status} className="mt-3 h-4 animate-[fade-up_300ms_ease-out_both] text-xs text-muted motion-reduce:animate-none">
             {status}

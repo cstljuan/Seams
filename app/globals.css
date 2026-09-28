@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "./theme.css";
 
+/* dark: classes follow the chosen theme, not only the system setting. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* Only theme colours: drop Tailwind's built-in palette and map our tokens. */
 @theme {
   --color-*: initial;

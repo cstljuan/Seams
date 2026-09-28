@@ -2,19 +2,32 @@
 
 import { useSyncExternalStore } from "react";
 
-// Follows the device's light or dark setting, the same switch theme.css uses.
-const QUERY = "(prefers-color-scheme: dark)";
+export type ColorScheme = "light" | "dark";
 
-function subscribe(onChange: () => void) {
-  const media = window.matchMedia(QUERY);
-  media.addEventListener("change", onChange);
-  return () => media.removeEventListener("change", onChange);
+// The chosen theme lives on <html data-theme>. The script in app/layout.tsx sets it
+// before paint from the saved choice, or from the device setting if there is none.
+export const THEME_KEY = "seams-theme";
+
+function read(): ColorScheme {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
-export function useColorScheme(): "light" | "dark" {
-  return useSyncExternalStore(
-    subscribe,
-    () => (window.matchMedia(QUERY).matches ? "dark" : "light"),
-    () => "light",
-  );
+function subscribe(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => observer.disconnect();
+}
+
+export function useColorScheme(): ColorScheme {
+  return useSyncExternalStore(subscribe, read, () => "light");
+}
+
+// Pick a theme and remember it. After this the device setting no longer switches it.
+export function setColorScheme(scheme: ColorScheme) {
+  document.documentElement.dataset.theme = scheme;
+  try {
+    localStorage.setItem(THEME_KEY, scheme);
+  } catch {
+    // Storage can be blocked; the choice still holds for this visit.
+  }
 }

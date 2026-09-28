@@ -14,6 +14,7 @@ import LoadingScreen from "./LoadingScreen";
 import type { MapHandle } from "./MapView";
 import type { MascotReaction } from "./Mascot";
 import OverlapList from "./OverlapList";
+import ThemeToggle from "./ThemeToggle";
 import {
   EMPTY_FILTERS,
   filterOverlaps,
@@ -351,14 +352,17 @@ export default function SeamsApp() {
               </h1>
               <span className="text-xs leading-tight text-muted">Where planned grid projects meet</span>
             </div>
-            <AppMenu
-              items={[
-                { label: "Explore overlaps", onSelect: () => { setInfo(null); setSidebarOpen(true); } },
-                { label: "How it works", onSelect: () => setInfo("how") },
-                { label: "Data and methodology", onSelect: () => setInfo("data") },
-                { label: "Reset demo", onSelect: resetDemo },
-              ]}
-            />
+            <div className="flex items-center gap-1.5">
+              <ThemeToggle />
+              <AppMenu
+                items={[
+                  { label: "Explore overlaps", onSelect: () => { setInfo(null); setSidebarOpen(true); } },
+                  { label: "How it works", onSelect: () => setInfo("how") },
+                  { label: "Data and methodology", onSelect: () => setInfo("data") },
+                  { label: "Reset demo", onSelect: resetDemo },
+                ]}
+              />
+            </div>
           </header>
           <LocationSearch onPlace={onPlace} onBusy={onSearchBusy} />
           <FilterRow filters={filters} onChange={changeFilters} />

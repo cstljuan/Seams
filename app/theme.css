@@ -1,7 +1,8 @@
-/* Theme tokens: Utility Navy. Light by default, dark follows the system setting.
+/* Theme tokens: Utility Navy. Light by default. Dark follows the system setting
+   unless the user picks one with the header toggle (sets data-theme on <html>).
    Components must only use these variables. Swap the values here to rebrand. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   --bg: #f3f5f8;
   --surface: #ffffff;
@@ -27,22 +28,22 @@
 }
 
 /* Dark: control room. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b1422;
-    --surface: #111d30;
-    --text: #e8eef7;
-    --muted: #8a9ab0;
-    --accent: #f5bc42;
+:root[data-theme="dark"] {
+  color-scheme: dark;
 
-    --arc: #f5bc42;
+  --bg: #0b1422;
+  --surface: #111d30;
+  --text: #e8eef7;
+  --muted: #8a9ab0;
+  --accent: #f5bc42;
 
-    --tier-1: #ff5a4e;
-    --tier-2: #ff9a3c;
-    --tier-3: #ffd43b;
-    --tier-4: #6ea8ff;
+  --arc: #f5bc42;
 
-    --utility-a: #b8c7ff;
-    --utility-b: #3ddcb4;
-  }
+  --tier-1: #ff5a4e;
+  --tier-2: #ff9a3c;
+  --tier-3: #ffd43b;
+  --tier-4: #6ea8ff;
+
+  --utility-a: #b8c7ff;
+  --utility-b: #3ddcb4;
 }

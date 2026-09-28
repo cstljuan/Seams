@@ -50,6 +50,7 @@ Reactions to wire in the app:
 - nothing matches the filters: `confused`
 - idle for 60 s: `sleep`
 Keep calls to `play(name)` so the art can be updated without touching the app.
+- Colour: the loading screen has swatches to recolour Arc (gold, coral, teal, blue, violet, pink). The choice is saved in the browser and applies everywhere Arc shows. Swatch colours live in `app/theme.css` as `--arc-<name>`. The logo mark stays gold.
 
 ## Desktop shell (2026-09-27)
 - Header: merged logo (`public/brand/logo-full-light.svg` / `logo-full-dark.svg`), tagline, a light/dark toggle, and a Menu (Explore overlaps, How it works, Data and methodology, Reset demo). Favicon is `app/icon.svg` (the Arc mark).

@@ -13,6 +13,14 @@
   /* Arc, the mascot. */
   --arc: #f5bc42;
 
+  /* Colours you can pick for Arc on the loading screen. Gold is the brand default. */
+  --arc-gold: #f5bc42;
+  --arc-coral: #ff7a59;
+  --arc-teal: #14b8a6;
+  --arc-blue: #5b8def;
+  --arc-violet: #9b7bff;
+  --arc-pink: #f06fb0;
+
   /* Overlap tiers, most severe (1) to least (4). */
   --tier-1: #d92d20;
   --tier-2: #f0772b;

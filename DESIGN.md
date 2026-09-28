@@ -50,7 +50,7 @@ Reactions to wire in the app:
 - nothing matches the filters: `confused`
 - idle for 60 s: `sleep`
 Keep calls to `play(name)` so the art can be updated without touching the app.
-- Colour: people can pick any colour for Arc with the browser's colour picker (the system colour wheel on a Mac). It's on the loading screen and next to Arc in the map corner, with a Reset back to gold. The choice is saved in the browser (`seams.arc-color`) and applies everywhere Arc shows. The default lives in `app/theme.css` as `--arc-brand`. The logo mark stays gold.
+- Colour: people can pick any colour for Arc with the browser's colour picker (the system colour wheel on a Mac). It sits next to Arc in the map corner (not on the loading screen), with a Reset back to gold. The choice is saved in the browser (`seams.arc-color`) and applies everywhere Arc shows. The default lives in `app/theme.css` as `--arc-brand`. The logo mark stays gold.
 
 ## Desktop shell (2026-09-27)
 - Header: merged logo (`public/brand/logo-full-light.svg` / `logo-full-dark.svg`), tagline, a light/dark toggle, and a Menu (Explore overlaps, How it works, Data and methodology, Reset demo). Favicon is `app/icon.svg` (the Arc mark).

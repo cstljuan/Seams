@@ -124,9 +124,9 @@ export default function ArcCorner({ ref, tips, hidden = false }: Props) {
       >
         <Mascot ref={mascot} size={SIZE} onState={onState} onGesture={onGesture} />
       </button>
-      {/* Pick any colour for Arc; the loading screen has the same picker. */}
+      {/* Pick any colour for Arc. */}
       <div className="absolute bottom-1 left-[92px]">
-        <ArcColorPicker variant="compact" disabled={hidden} />
+        <ArcColorPicker disabled={hidden} />
       </div>
     </div>
   );

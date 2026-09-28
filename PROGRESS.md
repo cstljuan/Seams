@@ -23,7 +23,7 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 17 | Pitch script (3 min + 5 min) | Juan, Charles | todo | | |
 | 18 | Demo video | Juan | todo | 14 | |
 | 19 | Desktop experience: framed map, menu, methodology, states, Arc wiring, coordination brief | Juan (Session 1) | done on `cstljuan/desktop-experience`, not pushed | | |
-| 20 | Arc colour picker: any colour (colour wheel), on the loading screen and next to Arc on the map | Brent | done | | |
+| 20 | Arc colour picker: any colour (colour wheel), next to Arc on the map (not on the loading screen) | Brent | done | | |
 | 21 | Light/dark toggle in the sidebar header (saved per browser) | Brent | done | | |
 
 ## Checkpoints (tonight)

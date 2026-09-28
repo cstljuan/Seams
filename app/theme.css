@@ -10,16 +10,10 @@
   --muted: #5b6778;
   --accent: #1f3a5f;
 
-  /* Arc, the mascot. */
-  --arc: #f5bc42;
-
-  /* Colours you can pick for Arc on the loading screen. Gold is the brand default. */
-  --arc-gold: #f5bc42;
-  --arc-coral: #ff7a59;
-  --arc-teal: #14b8a6;
-  --arc-blue: #5b8def;
-  --arc-violet: #9b7bff;
-  --arc-pink: #f06fb0;
+  /* Arc, the mascot. Brand gold by default; people can pick their own colour,
+     which is set as --arc on <html> (see components/ArcColorPicker.tsx). */
+  --arc-brand: #f5bc42;
+  --arc: var(--arc-brand);
 
   /* Overlap tiers, most severe (1) to least (4). */
   --tier-1: #d92d20;
@@ -44,8 +38,6 @@
   --text: #e8eef7;
   --muted: #8a9ab0;
   --accent: #f5bc42;
-
-  --arc: #f5bc42;
 
   --tier-1: #ff5a4e;
   --tier-2: #ff9a3c;

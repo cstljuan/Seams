@@ -74,4 +74,4 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 ## Visual restraint (2026-10-05)
 - Do not use decorative dot patterns, including dot grids, halftone fields, or scattered dot textures. Map markers and chart points that represent real product data are functional marks, not decoration.
 - Keep the approved brand, Arc mark, and Utility Navy palette. New visual details must come from the utility-construction subject, the map, or real product behavior.
-- Before changing UI, read the `frontend-design` and `no-ai-slop` skills in AI-Resource-Library. Avoid generic template defaults unless the brief gives them a clear job, and critique the finished screen against the actual Seams brief.
+- Before changing UI, think through the task and select only the AI-Resource-Library skill(s) that materially help. `frontend-design` is an option for distinctive UI, not a default. Avoid generic template defaults unless the brief gives them a clear job, and critique the finished screen against the actual Seams brief.

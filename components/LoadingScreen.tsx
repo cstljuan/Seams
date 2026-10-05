@@ -88,10 +88,6 @@ export default function LoadingScreen({ phase, overlapCount, target, onGone }: P
       <div
         aria-hidden
         className={`absolute inset-0 bg-bg transition-opacity duration-500 ease-out ${leaving ? "opacity-0" : "opacity-100"}`}
-        style={{
-          backgroundImage: "radial-gradient(color-mix(in srgb, var(--text) 10%, transparent) 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
       />
 
       <div className="relative flex flex-col items-center">

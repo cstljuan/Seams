@@ -23,6 +23,7 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 17 | Pitch script (3 min + 5 min) | Juan, Charles | todo | | |
 | 18 | Demo video | Juan | todo | 14 | |
 | 19 | Desktop experience: framed map, menu, methodology, states, Arc wiring, coordination brief | Juan (Session 1) | done on `cstljuan/desktop-experience`, not pushed | | |
+| 20 | Remove decorative dot texture from loading screen and record Seams visual restraint rules | Juan | done on `cstljuan/urgent-link-note` | | |
 
 ## Checkpoints (tonight)
 - 20:00 deployed app shows the 10 sample projects and 6 overlaps, ranked

@@ -70,3 +70,8 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - Never show a cost as one exact number; show a range.
 - Always label approximate distances ("Centroid" accuracy).
 - No chat window as the core experience.
+
+## Visual restraint (2026-10-05)
+- Do not use decorative dot patterns, including dot grids, halftone fields, or scattered dot textures. Map markers and chart points that represent real product data are functional marks, not decoration.
+- Keep the approved brand, Arc mark, and Utility Navy palette. New visual details must come from the utility-construction subject, the map, or real product behavior.
+- Before changing UI, read the `frontend-design` and `no-ai-slop` skills in AI-Resource-Library. Avoid generic template defaults unless the brief gives them a clear job, and critique the finished screen against the actual Seams brief.

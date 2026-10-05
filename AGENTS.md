@@ -13,6 +13,8 @@ Project: Seams, ShellHacks 2026, Sperry Tech GridLock challenge.
 - Read `PROGRESS.md`, `DESIGN.md` and `docs/data-contract.md` before project work.
 - Update your row in `PROGRESS.md` when starting and finishing a task.
 - Keep colours and fonts in the theme file. Keep distances labelled as approximate unless both geometries are OSM lines.
+- Before any visual design or UI work, read the `frontend-design` and `no-ai-slop` skills from Juan's AI-Resource-Library. Make choices specific to Seams and its utility-construction users, then critique the result for generic template defaults.
+- Do not add decorative dot grids, halftone fields, or scattered dot textures anywhere in Seams. Dots that are actual map markers or encode real data are allowed. The approved brand and palette remain locked unless Juan changes them.
 - Show cost estimates as ranges, never as one exact number.
 - Stay within the folder ownership listed in `HOW-TO-USE.md`.
 - One person owns one feature at a time. Don't edit files another teammate's branch is working on. Ask in Discord first if you need to touch shared code.

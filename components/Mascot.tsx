@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useImperativeHandle, useRef, useState, useSyncExternalStore, type Ref } from "react";
-import { accessorySvg, arcAccessory } from "./arcAccessories";
+import { accessorySvg, arcAccessory, lentAccessory } from "./arcAccessories";
 
 // Reactions used by the app. The mascot script supports more.
 export type MascotReaction =
@@ -94,7 +94,10 @@ export default function Mascot({ ref, size = 96, initial, onReady, onState, onGe
 
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const accessory = useSyncExternalStore(arcAccessory.subscribe, arcAccessory.get, () => null);
+  const saved = useSyncExternalStore(arcAccessory.subscribe, arcAccessory.get, () => null);
+  const lent = useSyncExternalStore(lentAccessory.subscribe, lentAccessory.get, () => null);
+  // Arc's own choice wins; a lent accessory only shows when he wears nothing.
+  const accessory = saved ?? lent;
   const uid = useId().replace(/[^a-z0-9]/gi, "");
 
   // Keep the latest callbacks without re-running the effects below.

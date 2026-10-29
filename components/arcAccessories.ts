@@ -14,6 +14,23 @@ const IDS: readonly string[] = ACCESSORIES.map((a) => a.id);
 // Nothing saved means no accessory.
 export const arcAccessory = savedChoice("seams.arc-accessory", (value) => IDS.includes(value));
 
+// A short-lived accessory for a moment (say, a hard hat on a tier 1 find). Never saved.
+let lent: string | null = null;
+const lentListeners = new Set<() => void>();
+export const lentAccessory = {
+  get: () => lent,
+  set(value: string | null) {
+    lent = value;
+    lentListeners.forEach((fn) => fn());
+  },
+  subscribe(fn: () => void) {
+    lentListeners.add(fn);
+    return () => {
+      lentListeners.delete(fn);
+    };
+  },
+};
+
 // Colours come from app/theme.css. SVG fill attributes can't read CSS variables, but style can.
 const fill = (token: string) => `style="fill:var(--${token})"`;
 

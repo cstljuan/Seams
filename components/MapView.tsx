@@ -266,9 +266,11 @@ export default function MapView({
   });
   const updateFocus = useCallback(() => {
     const m = map.current?.getMap();
-    if (!m || !m.isStyleLoaded()) return;
+    if (!m) return;
     const b = m.getBounds();
+    // The list follows the camera even while tiles are still loading.
     viewCb.current?.({ bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], zoom: m.getZoom() });
+    if (!m.isStyleLoaded()) return;
 
     const next = { overlaps: new Set<string>(), projects: new Set<string>() };
     if (m.getZoom() >= FOCUS_ZOOM && !selectedId) {

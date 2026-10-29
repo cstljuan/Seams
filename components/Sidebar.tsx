@@ -10,6 +10,7 @@ import LocationSearch from "./LocationSearch";
 import OverlapList from "./OverlapList";
 import ThemeToggle from "./ThemeToggle";
 import TimelineView from "./TimelineView";
+import { SearchIcon } from "./icons";
 import { GROUPS, SORTS, groupOverlaps, honestSavings, neighbours, sortOverlaps, type GroupKey, type SortKey } from "./explore";
 import { EMPTY_FILTERS, formatUsd, hasFilters, type Filters, type ProjectIndex } from "./overlaps";
 import type { Place } from "./places";
@@ -41,6 +42,8 @@ interface Props {
   spotlight: string;
   onSpotlight(utility: string): void;
   utilities: UtilityInfo[];
+  // Opens the command palette.
+  onOpenPalette(): void;
 }
 
 // Everything in the overlaps panel: header, dataset, search, filters and the ranked list.
@@ -64,6 +67,7 @@ export default function SidebarPanel({
   spotlight,
   onSpotlight,
   utilities,
+  onOpenPalette,
 }: Props) {
   const data = load.status === "ready" ? load.data : null;
   const [sort, setSort] = useState<SortKey>("severity");
@@ -99,6 +103,15 @@ export default function SidebarPanel({
             <span className="text-xs leading-tight text-muted">Where planned grid projects meet</span>
           </div>
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onOpenPalette}
+              aria-label="Jump to (Cmd or Ctrl + K)"
+              title="Jump to (Cmd or Ctrl + K)"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface hover:bg-hover"
+            >
+              <SearchIcon className="h-3.5 w-3.5" />
+            </button>
             <ThemeToggle />
             <AppMenu items={menuItems} />
           </div>

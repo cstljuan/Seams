@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import projects from "@/data/fixtures/projects.geojson";
 import overlaps from "@/data/fixtures/overlaps.json";
 import type { Overlap, Project } from "@/lib/data";
-import { buildBrief, scheduleText } from "./brief";
+import { buildBrief, buildPlan, scheduleText } from "./brief";
 import { indexProjects, sides } from "./overlaps";
 
 const all = (projects as unknown as { features: Project[] }).features;
@@ -33,5 +33,17 @@ describe("brief", () => {
   it("handles a missing cost", () => {
     const o = { ...list[0], cost: null };
     expect(buildBrief(o, sides(o, index)!)).toContain("Not estimated for this pair");
+  });
+});
+
+describe("buildPlan", () => {
+  it("lists every pair once in a table, keeps ranges per pair, and never totals them", () => {
+    const items = list.slice(0, 3).map((o) => ({ overlap: o, pair: sides(o, index)! }));
+    const md = buildPlan(items, new Date("2026-10-29T00:00:00Z"));
+    expect(md).toMatch(/^# Seams coordination plan: 3 pairs/);
+    for (const { overlap } of items) expect(md).toContain(`| ${overlap.rank} |`);
+    expect(md).toContain("are not added together");
+    expect(md).not.toMatch(/total/i);
+    expect(md.split("## Projects").length - 1).toBe(3);
   });
 });

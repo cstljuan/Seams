@@ -31,7 +31,7 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 28 | 3D map view toggle (time height, utility floors), after the Tokyo Last Train Atlas | Juan (Opus session) | done on `cstljuan/map-3d` | | |
 | 25 | Phone layout: bottom sheet | Juan (Opus session) | done on `cstljuan/legible-map` | | |
 | 26 | Sort, group, timeline, time scrubber, savings counter, utility spotlight | Juan (Opus session) | done on `cstljuan/explore-views` | | |
-| 27 | Deep links, command palette, plan export, Arc narration and easter eggs | Juan (session D) | todo | 23 | |
+| 27 | Deep links, command palette, plan export, Arc narration and easter eggs | Juan (Opus session) | done on `cstljuan/share-and-arc` | | |
 
 ## Checkpoints (tonight)
 - 20:00 deployed app shows the 10 sample projects and 6 overlaps, ranked

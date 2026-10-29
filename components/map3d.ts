@@ -122,7 +122,6 @@ export function stitches(
   overlaps: Overlap[],
   levels: Map<string, number>,
   half: number,
-  selectedId: string | null,
 ): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
@@ -131,7 +130,7 @@ export function stitches(
       const b = top(levels.get(o.b) ?? 0);
       return {
         type: "Feature",
-        properties: { id: o.id, tier: o.tier, selected: o.id === selectedId, lo: Math.min(a, b) - CAP, hi: Math.max(a, b) },
+        properties: { id: o.id, tier: o.tier, lo: Math.min(a, b) - CAP, hi: Math.max(a, b) },
         geometry: footprint(o.closest_points, half),
       };
     }),

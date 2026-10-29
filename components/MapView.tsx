@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import type { ExpressionSpecification } from "maplibre-gl";
 import Map, { Layer, Marker, NavigationControl, Source, type MapRef } from "react-map-gl/maplibre";
 import type { LngLat, Overlap, Project, ProjectType, UtilityInfo } from "@/lib/data";
 import { CAP, projectLevels, ribbons, stitches, type MapView3D } from "./map3d";
@@ -161,19 +162,14 @@ export default function MapView({
     return out;
   }, [selected, projects]);
 
+  // Features only change with the data and the date filter. Opening a pair changes paint expressions
+  // (SIDE, DIMMED, SELECTED below), not the data, so it stays fast with thousands of projects.
   const projectFeatures = useMemo(() => {
     const markers: GeoJSON.Feature[] = [];
     const lines: GeoJSON.Feature[] = [];
     for (const p of projects) {
       const id = p.properties.id;
-      const side: number = sideOf[id] ?? -1;
-      const properties = {
-        id,
-        utility: p.properties.utility,
-        type: p.properties.type,
-        side,
-        dimmed: side === -1 && (hasSelection || dimmedProjectIds.has(id)),
-      };
+      const properties = { id, utility: p.properties.utility, type: p.properties.type, dimmed: dimmedProjectIds.has(id) };
       markers.push({ type: "Feature", properties, geometry: { type: "Point", coordinates: markerPoint(p) } });
       if (p.geometry.type === "LineString") lines.push({ type: "Feature", properties, geometry: p.geometry });
     }
@@ -181,18 +177,18 @@ export default function MapView({
       markers: { type: "FeatureCollection", features: markers } as GeoJSON.FeatureCollection,
       lines: { type: "FeatureCollection", features: lines } as GeoJSON.FeatureCollection,
     };
-  }, [projects, sideOf, hasSelection, dimmedProjectIds]);
+  }, [projects, dimmedProjectIds]);
 
   const overlapLines = useMemo<GeoJSON.FeatureCollection>(
     () => ({
       type: "FeatureCollection",
       features: overlaps.map((o) => ({
         type: "Feature",
-        properties: { id: o.id, tier: o.tier, selected: o.id === selectedId },
+        properties: { id: o.id, tier: o.tier },
         geometry: { type: "LineString", coordinates: o.closest_points },
       })),
     }),
-    [overlaps, selectedId],
+    [overlaps],
   );
 
   const big = projects.length >= BIG_DATASET;
@@ -207,26 +203,29 @@ export default function MapView({
   const levels = useMemo(() => projectLevels(projects, utilities, view === "utility" ? "utility" : "time"), [projects, utilities, view]);
   const solids = useMemo(() => {
     if (!is3d) return null;
-    const props = (p: Project) => {
-      const id = p.properties.id;
-      const side: number = sideOf[id] ?? -1;
-      return { id, utility: p.properties.utility, side, dimmed: side === -1 && (hasSelection || dimmedProjectIds.has(id)) };
-    };
+    const props = (p: Project) => ({ id: p.properties.id, utility: p.properties.utility, dimmed: dimmedProjectIds.has(p.properties.id) });
     return {
       ribbonsCoarse: ribbons(projects, levels, RIBBON_HALF.coarse, props),
       ribbonsFine: ribbons(projects, levels, RIBBON_HALF.fine, props),
-      stitchesCoarse: stitches(overlaps, levels, STITCH_HALF.coarse, selectedId),
-      stitchesFine: stitches(overlaps, levels, STITCH_HALF.fine, selectedId),
+      stitchesCoarse: stitches(overlaps, levels, STITCH_HALF.coarse),
+      stitchesFine: stitches(overlaps, levels, STITCH_HALF.fine),
     };
-  }, [is3d, projects, overlaps, levels, sideOf, hasSelection, dimmedProjectIds, selectedId]);
+  }, [is3d, projects, overlaps, levels, dimmedProjectIds]);
 
   if (!colors) return <div className="h-full w-full bg-bg" />;
+
+  // Per-feature state as expressions: which side of the open pair a project is on (-1 for neither),
+  // whether it is dimmed, and whether an overlap is the open one.
+  const sideIds = Object.entries(sideOf);
+  const SIDE = (sideIds.length ? ["match", ["get", "id"], ...sideIds.flatMap(([id, side]) => [id, side]), -1] : ["number", -1]) as ExpressionSpecification;
+  const DIMMED = (hasSelection ? ["==", SIDE, -1] : ["get", "dimmed"]) as ExpressionSpecification;
+  const SELECTED: ExpressionSpecification = ["==", ["get", "id"], selectedId ?? ""];
 
   const tierColor = ["match", ["get", "tier"], 1, colors["--tier-1"], 2, colors["--tier-2"], 3, colors["--tier-3"], colors["--tier-4"]];
   // Sides of the open pair first, then by utility (sample) or one shared colour (many utilities).
   const projectColor = [
     "match",
-    ["get", "side"],
+    SIDE,
     0,
     colors["--utility-b"],
     1,
@@ -234,8 +233,8 @@ export default function MapView({
     colorByUtility ? ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]] : colors["--muted"],
   ];
   // Ribbons: the open pair's sides in their colours, everything else in the normal project colour, dimmed ones muted.
-  const ribbonColor = ["case", ["all", ["get", "dimmed"], ["==", ["get", "side"], -1]], colors["--muted"], projectColor];
-  const pairOpacity = (others: number) => ["case", ["get", "selected"], 1, others];
+  const ribbonColor = ["case", ["all", DIMMED, ["==", SIDE, -1]], colors["--muted"], projectColor];
+  const pairOpacity = (others: number) => ["case", SELECTED, 1, others];
 
   return (
     <Map
@@ -283,7 +282,7 @@ export default function MapView({
             "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 7, 2.5, 10, 3.5],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-color": projectColor as any,
-            "line-opacity": ["case", ["get", "dimmed"], 0.18, ["==", ["get", "side"], -1], big ? 0.55 : 0.9, 1],
+            "line-opacity": ["case", DIMMED, 0.18, ["==", SIDE, -1], big ? 0.55 : 0.9, 1],
           }}
         />
         <Layer id="project-lines-hit" type="line" paint={{ "line-color": colors["--text"], "line-width": 10, "line-opacity": 0 }} />
@@ -296,7 +295,7 @@ export default function MapView({
           layout={{ "line-cap": "round" }}
           paint={{
             "line-color": colors["--surface"],
-            "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "selected"], 9, big ? 3 : 6], 7, ["case", ["get", "selected"], 11, 6]],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", SELECTED, 9, big ? 3 : 6], 7, ["case", SELECTED, 11, 6]],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-opacity": pairOpacity(hasSelection ? 0.4 : 0.9) as any,
           }}
@@ -309,7 +308,7 @@ export default function MapView({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-color": tierColor as any,
             // Thinner when zoomed out on the big dataset, so 1,500 seams stay readable.
-            "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "selected"], 6, big ? 1.5 : 3], 7, ["case", ["get", "selected"], 7, 3]],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", SELECTED, 6, big ? 1.5 : 3], 7, ["case", SELECTED, 7, 3]],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-opacity": pairOpacity(hasSelection ? 0.35 : 0.9) as any,
           }}
@@ -351,16 +350,16 @@ export default function MapView({
               ["linear"],
               ["zoom"],
               3,
-              ["case", ["==", ["get", "side"], -1], big ? 0.32 : 0.9, 1],
+              ["case", ["==", SIDE, -1], big ? 0.32 : 0.9, 1],
               7,
-              ["case", ["==", ["get", "side"], -1], big ? 0.6 : 0.9, 1.1],
+              ["case", ["==", SIDE, -1], big ? 0.6 : 0.9, 1.1],
               10,
-              ["case", ["==", ["get", "side"], -1], big ? 0.75 : 1, 1.2],
+              ["case", ["==", SIDE, -1], big ? 0.75 : 1, 1.2],
             ],
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
             // Open pair on top, dimmed ones underneath.
-            "symbol-sort-key": ["case", ["!=", ["get", "side"], -1], 2, ["get", "dimmed"], 0, 1],
+            "symbol-sort-key": ["case", ["!=", SIDE, -1], 2, DIMMED, 0, 1],
           }}
           paint={{
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -368,7 +367,7 @@ export default function MapView({
             "icon-halo-color": colors["--surface"],
             "icon-halo-width": 1.5,
             // In 3D the ribbons carry the projects; the markers stay on the ground as faint shadows.
-            "icon-opacity": ["case", ["get", "dimmed"], is3d ? 0.15 : 0.3, ["==", ["get", "side"], -1], is3d ? 0.35 : 1, 1],
+            "icon-opacity": ["case", DIMMED, is3d ? 0.15 : 0.3, ["==", SIDE, -1], is3d ? 0.35 : 1, 1],
           }}
         />
       </Source>

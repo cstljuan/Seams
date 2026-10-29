@@ -40,7 +40,7 @@ describe("3D map geometry", () => {
   it("makes a stitch that spans the two projects' heights", () => {
     const levels = projectLevels(projects, [], "time");
     const o = { id: "o", a: "a", b: "c", tier: 2, closest_points: [[-84, 33], [-84.01, 33.01]] } as unknown as Overlap;
-    const f = stitches([o], levels, 500, null).features[0].properties!;
+    const f = stitches([o], levels, 500).features[0].properties!;
     expect(f.hi).toBe(top(1));
     expect(f.lo).toBeLessThan(top(0));
   });

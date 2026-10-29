@@ -8,7 +8,7 @@ import type { LngLat, Project, ProjectType, UtilityInfo } from "../lib/data";
 
 const SEED = "seams-illustrative-2026-10-29";
 // Scales every utility's project count.
-const SCALE = 1.2;
+const SCALE = 3.6;
 const SOURCE_DOC = "Seams illustrative dataset (generated). Not a real utility plan.";
 const KM_PER_DEG = 111.32;
 
@@ -45,29 +45,17 @@ interface City {
   at: LngLat;
 }
 
-const STATE_CODES: Record<string, string> = {
-  Alabama: "AL", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO", Connecticut: "CT",
-  Delaware: "DE", Florida: "FL", Georgia: "GA", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA",
-  Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD", Massachusetts: "MA",
-  Michigan: "MI", Minnesota: "MN", Mississippi: "MS", Missouri: "MO", Montana: "MT", Nebraska: "NE",
-  Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
-  "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK", Oregon: "OR",
-  Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD",
-  Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT", Virginia: "VA", Washington: "WA",
-  "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY",
-};
-
+// Lower 48 towns of 1,000 people or more, from GeoNames (scripts/data/README.md).
 async function readCities(): Promise<City[]> {
-  const csv = await readFile(path.join(process.cwd(), "scripts/data/us-cities-top-1k.csv"), "utf8");
+  const csv = await readFile(path.join(process.cwd(), "scripts/data/us-towns-geonames.csv"), "utf8");
   return csv
     .trim()
     .split("\n")
     .slice(1)
     .map((line) => line.split(","))
-    .filter(([, state]) => STATE_CODES[state])
     .map(([name, state, population, lat, lon]) => ({
       name,
-      state: STATE_CODES[state],
+      state,
       population: Number(population),
       at: [Number(lon), Number(lat)] as LngLat,
     }));
@@ -107,6 +95,16 @@ const UTILITIES: UtilitySpec[] = [
   { code: "IBE", name: "Ironbridge Electric", kind: "local", count: 34, states: ["NY", "NJ", "PA"] },
   { code: "GCP", name: "Granite Coast Power", kind: "local", count: 30, states: ["MA", "CT", "RI", "NH", "VT", "ME"] },
   { code: "LHE", name: "Laurel Highlands Electric", kind: "local", count: 28, states: ["MD", "DE", "WV", "VA"] },
+  { code: "SPC", name: "Sunpine Cooperative", kind: "local", count: 30, states: ["FL", "GA", "AL"], latMin: 28.5 },
+  { code: "BLE", name: "Bayou Line Electric", kind: "local", count: 30, states: ["LA", "MS"] },
+  { code: "CRP", name: "Canyon Rim Power", kind: "local", count: 28, states: ["CO", "UT", "AZ", "NM"] },
+  { code: "SGP", name: "Sagebrush Power", kind: "local", count: 26, states: ["NV", "ID", "OR", "WY"] },
+  { code: "PHE", name: "Prairie Hollow Electric", kind: "local", count: 28, states: ["ND", "SD", "MN", "NE"] },
+  { code: "HCP", name: "Hollow Creek Power", kind: "local", count: 30, states: ["MO", "AR", "OK", "KS"] },
+  { code: "SME", name: "Saltmarsh Electric", kind: "local", count: 28, states: ["SC", "GA", "NC", "FL"] },
+  { code: "RWP", name: "Ridgeway Power", kind: "local", count: 30, states: ["KY", "TN", "WV", "OH"] },
+  { code: "PWE", name: "Pinewood Electric", kind: "local", count: 24, states: ["ME", "NH", "VT", "NY"] },
+  { code: "GPP", name: "Gulf Prairie Power", kind: "local", count: 32, states: ["TX", "LA"], latMax: 31.5 },
 ];
 
 // --- Geometry helpers ---
@@ -115,7 +113,8 @@ function offset([lng, lat]: LngLat, km: number, bearing: number): LngLat {
   const dLng = (km * Math.sin(bearing)) / (KM_PER_DEG * Math.cos((lat * Math.PI) / 180));
   return [round(lng + dLng), round(lat + dLat)];
 }
-const round = (n: number) => Number(n.toFixed(5));
+// Four decimals is about 11 m, plenty for made-up plans, and keeps the files small.
+const round = (n: number) => Number(n.toFixed(4));
 function kmBetween(a: LngLat, b: LngLat): number {
   const dLat = (b[1] - a[1]) * KM_PER_DEG;
   const dLng = (b[0] - a[0]) * KM_PER_DEG * Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180);
@@ -166,7 +165,8 @@ function makeProjects(spec: UtilitySpec, cities: City[]): Project[] {
   const byState = new Map<string, City[]>();
   for (const c of pool) byState.set(c.state, [...(byState.get(c.state) ?? []), c]);
   const states = [...byState.keys()];
-  const town = () => weighted(byState.get(weighted(states, (s) => Math.pow(byState.get(s)!.length, 0.3)))!, (c) => Math.sqrt(c.population));
+  // Towns are weighted only lightly by size, so rural areas fill in too, not just the big metros.
+  const town = () => weighted(byState.get(weighted(states, (s) => Math.pow(byState.get(s)!.length, 0.45)))!, (c) => Math.pow(c.population, 0.2));
 
   const transmission = spec.kind === "transmission";
   const out: Project[] = [];
@@ -191,7 +191,7 @@ function makeProjects(spec: UtilitySpec, cities: City[]): Project[] {
     } else {
       const [lo, hi] = transmission ? [40, 220] : [8, 80];
       const near = pool.filter((c) => c !== from && kmBetween(c.at, from.at) >= lo && kmBetween(c.at, from.at) <= hi);
-      const to = near.length ? weighted(near, (c) => Math.sqrt(c.population)) : null;
+      const to = near.length ? weighted(near, (c) => Math.pow(c.population, 0.3)) : null;
       const end = to ? to.at : offset(from.at, between(lo, Math.min(hi, lo * 2)), between(0, Math.PI * 2));
       const start = offset(from.at, between(0.5, 5), between(0, Math.PI * 2));
       const finish = offset(end, between(0.5, 5), between(0, Math.PI * 2));

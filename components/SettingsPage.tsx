@@ -251,7 +251,7 @@ export default function SettingsPage() {
                 ]}
               />
               <p className="mt-3 text-xs leading-relaxed text-muted">
-                Illustrative is about 800 made-up projects from 23 utilities, placed on real US towns. Only DESC and
+                Illustrative is about 3,400 made-up projects from 33 utilities, placed on real US towns. Only DESC and
                 Georgia Power, with their 10 real projects from the Sperry Tech GridLock sample, are real. The Sperry
                 sample shows real data only.
               </p>

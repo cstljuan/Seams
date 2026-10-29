@@ -70,7 +70,7 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - If the Arc script fails or takes over 8 s, Arc is hidden and the app keeps working.
 
 ## Datasets and the big map (2026-10-29)
-- Two datasets, picked at the top of the panel: **Illustrative** (default, about 800 made-up projects from 23 utilities on real US towns) and **Sperry sample** (the 10 real projects). Saved in the browser as `seams.dataset` (`lib/dataset.ts`).
+- Two datasets, picked at the top of the panel: **Illustrative** (default, about 3,400 made-up projects from 33 utilities on real US towns) and **Sperry sample** (the 10 real projects). Saved in the browser as `seams.dataset` (`lib/dataset.ts`).
 - The illustrative dataset is always labelled: "Illustrative data" chip under the toggle, a line in the legend, the Data and methodology drawer, and coordination briefs. Accuracy shows "Illustrative".
 - Projects draw on the GPU (MapLibre symbol layers with SDF shapes from `components/mapShapes.ts`), same shapes as before. With two utilities they keep the DESC/GPC colours. With many, every project is `--muted` and only the two sides of the open pair get `--utility-b` (first) and `--utility-a` (second), matching the list.
 - No aggregation shapes: the zoomed-out map shows every project and every seam line, thinner and smaller on the big dataset (Juan, 2026-10-29: hexagons and light columns are out).

@@ -9,13 +9,15 @@ interface Props {
   // The year shown; null means every year (nothing ghosted).
   year: number | null;
   onChange(year: number | null): void;
+  // Phones: shorter labels, fewer ticks.
+  compact?: boolean;
 }
 
 const STEP_MS = 900;
 
 // The time bar for the 3D time view, after the Tokyo Last Train Atlas: pick a year, or press play to
 // watch the grid get built. Projects in service after the year are ghosted on the map.
-export default function YearBar({ range: [from, to], year, onChange }: Props) {
+export default function YearBar({ range: [from, to], year, onChange, compact = false }: Props) {
   const [playing, setPlaying] = useState(false);
   const reduced = useReducedMotion();
   const shown = year ?? to;
@@ -42,9 +44,9 @@ export default function YearBar({ range: [from, to], year, onChange }: Props) {
 
   return (
     <div className="pointer-events-auto flex w-full max-w-[640px] items-center gap-3 rounded-2xl border border-line bg-surface/95 px-3 py-2.5 shadow-lg">
-      <div className="w-20 shrink-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">In service by</p>
-        <p className="font-mono text-2xl font-semibold leading-none" aria-live="polite">
+      <div className={compact ? "w-12 shrink-0" : "w-20 shrink-0"}>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">{compact ? "By" : "In service by"}</p>
+        <p className={`font-mono font-semibold leading-none ${compact ? "text-lg" : "text-2xl"}`} aria-live="polite">
           {year === null ? "All" : shown}
         </p>
       </div>
@@ -64,7 +66,7 @@ export default function YearBar({ range: [from, to], year, onChange }: Props) {
           className="w-full accent-[var(--accent)]"
         />
         <div className="mt-0.5 flex justify-between font-mono text-[10px] text-muted" aria-hidden>
-          {years.filter((y, i) => i % 2 === 0 || y === to).map((y) => (
+          {years.filter((y, i) => i % (compact ? 4 : 2) === 0 || y === to).map((y) => (
             <span key={y} className={y === shown ? "font-semibold text-text" : ""}>
               {y}
             </span>
@@ -79,7 +81,7 @@ export default function YearBar({ range: [from, to], year, onChange }: Props) {
       >
         {playing ? <PauseIcon className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
       </button>
-      {year !== null && (
+      {year !== null && !compact && (
         <button type="button" onClick={() => { setPlaying(false); onChange(null); }} className="shrink-0 rounded-full border border-line px-3 py-2 text-xs hover:bg-hover">
           All years
         </button>

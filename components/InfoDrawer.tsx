@@ -36,7 +36,7 @@ export default function InfoDrawer({ topic, dataset, onClose }: { topic: InfoTop
       aria-modal="false"
       aria-label={title}
       tabIndex={-1}
-      className="absolute inset-y-3 left-3 z-20 flex w-[400px] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-xl outline-none"
+      className="absolute inset-y-3 left-3 z-40 flex w-[min(400px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-xl outline-none"
     >
       <header className="flex items-center justify-between border-b border-line px-5 py-3">
         <h2 className="text-base font-semibold">{title}</h2>

@@ -13,9 +13,8 @@ const R = 6_378_137;
 // Lowest ribbon still sits a little above the ground, so curtains and stitches show.
 const FLOOR = 0.08;
 // Ribbon thickness, as a share of the full height scale.
-export const CAP = 0.02;
-// How many line colours the theme has (--line-1 to --line-12).
-export const LINE_COLOURS = 12;
+export const CAP = 0.014;
+
 
 function toMercator([lng, lat]: LngLat): [number, number] {
   const clamped = Math.max(-85, Math.min(85, lat));
@@ -105,30 +104,7 @@ export function timeRange(projects: Project[]): [number, number] | null {
   return years.length ? [Math.min(...years), Math.max(...years)] : null;
 }
 
-// Each utility's line colour slot, A to Z, cycling through the theme's line colours.
-export function colourSlots(projects: Project[], utilities: UtilityInfo[]): Map<string, number> {
-  const codes = [...new Set([...utilities.map((u) => u.code), ...projects.map((p) => p.properties.utility)])].sort();
-  return new Map(codes.map((c, i) => [c, i % LINE_COLOURS]));
-}
-
 const yearOf = (p: Project) => Number(p.properties.in_service.slice(0, 4)) || 0;
-
-// Station nodes: both ends of every line project, and every point project, at the ribbon's height.
-export function stations(projects: Project[], levels: Map<string, number>, half: number): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = [];
-  for (const p of projects) {
-    const t = top(levels.get(p.properties.id) ?? 0);
-    const ends = p.geometry.type === "Point" ? [p.geometry.coordinates] : [p.geometry.coordinates[0], p.geometry.coordinates.at(-1)!];
-    for (const at of ends) {
-      features.push({
-        type: "Feature",
-        properties: { id: p.properties.id, top: t, year: yearOf(p) },
-        geometry: { type: "Polygon", coordinates: [square(at, half)] },
-      });
-    }
-  }
-  return { type: "FeatureCollection", features };
-}
 
 export function ribbons(
   projects: Project[],

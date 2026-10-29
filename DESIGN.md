@@ -85,11 +85,21 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 
 ## Map view: 2D and 3D (2026-10-29)
 - Switch at the top right of the map (and on `/settings`): **2D**, **3D time**, **3D utility**. Saved as `seams.map-view`. The idea comes from the Tokyo Last Train Atlas reference in the vault: height carries a second dimension.
-- 3D tilts the camera (pitch 55, bearing -18) under a soft light. Each project becomes a ribbon floating at its height in its utility's line colour (`--line-1` to `--line-12`, cycled A to Z, kept clear of the tier colours), with a see-through curtain to the ground for line projects and white station nodes at both ends, like a transit map. Ground lines turn into grey shadows; the seams stay as tier-coloured lines on the ground. The open pair gets one thin stitch in its tier colour from the lower ribbon to the higher, and every other project fades to a ghost.
-- 3D time has a year bar (after the Tokyo site's time bar): drag or press play to step through the years. Projects not in service yet are ghosted and their seams fade. "All years" clears it.
-- 3D time: height is the in-service date, earliest at the bottom. 3D utility: one floor per utility, A to Z from the ground up. A caption under the switch always says what height means.
-- 2D keeps the Seams colours. No light columns, no aggregation shapes, no wall-sized stitches.
+- 3D tilts the camera (pitch 55, bearing -18). Each project is a thin ribbon at its height in the project colour; when zoomed in, line projects also get a see-through curtain to the ground. Seams stay as tier-coloured lines on the ground. The open pair gets one thin stitch in its tier colour from the lower ribbon to the higher.
+- 3D time: height is the in-service date, earliest at the bottom, with a year bar (drag or play) that ghosts projects not in service yet. 3D utility: one floor per utility. A caption under the switch says what height means.
+- Juan, 2026-10-29: no per-utility rainbow colours, station nodes or wall-sized stitches (too messy). No light columns, no aggregation shapes.
+
+## Keeping the big map readable (2026-10-29, after Common Ground)
+- **Scope** picker above the legend: United States or one state. A pair is in scope when either project is in the state; the map shows in-scope projects plus their partners and flies there.
+- **Focus on open**: with a pair open, 3D draws only that pair; 2D fades everything else to 15%.
+- **Zoomed out on the big dataset**: only tier 1 and 2 seams show until zoom 5 to 6.5; project lines sit back at 22%.
 - Geometry and heights: `components/map3d.ts`. Heights scale with zoom (450 km of full height at zoom 3 down to 300 m at zoom 14).
+
+## Phones (2026-10-29)
+- Below 768 px: full-screen map with a draggable bottom sheet (`components/BottomSheet.tsx`): peek (124 px: count or the open pair, plus Overview or Close), half, full. Drag or tap the handle; a quick flick moves one stop. Only the handle drags, so the list scrolls normally.
+- Opening a pair from the list or the map drops the sheet to peek and frames the pair above it.
+- Top row: compact Scope picker, a "Legend" button that opens the legend, and the view switch with short labels. No zoom buttons (pinch). Arc is 56 px and sits above the sheet; the year bar sits above the sheet at peek.
+- 768 px and up keeps the desktop sidebar (42% wide on tablets, 30% from 1024 px).
 
 ## Rules
 - Never show a cost as one exact number; show a range.

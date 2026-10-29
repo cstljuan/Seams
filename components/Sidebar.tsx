@@ -68,7 +68,7 @@ export default function SidebarPanel({
 
   return (
     <>
-      <div className="flex min-w-[360px] flex-col gap-3 border-b border-line p-4">
+      <div className="flex flex-col gap-3 border-b border-line p-4 lg:min-w-[360px]">
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h1 className="m-0">
@@ -89,7 +89,7 @@ export default function SidebarPanel({
         <FilterRow filters={filters} onChange={changeFilters} />
       </div>
 
-      <div className="flex min-h-0 min-w-[360px] flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col lg:min-w-[360px]">
         <div className="flex items-center justify-between px-4 pb-2 pt-3">
           <h2 className="text-sm font-semibold">
             Ranked overlaps

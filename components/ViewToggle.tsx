@@ -14,10 +14,12 @@ interface Props {
   // Shown under the toggle in 3D, so the height always has a key.
   years: [number, number] | null;
   utilityCount: number;
+  // Phones: short labels and no caption (the legend explains height instead).
+  compact?: boolean;
 }
 
 // Picks the map view, like the Tokyo Last Train Atlas's height switch. Sits top right, next to the zoom buttons.
-export default function ViewToggle({ view, onChange, years, utilityCount }: Props) {
+export default function ViewToggle({ view, onChange, years, utilityCount, compact = false }: Props) {
   const caption =
     view === "time" && years
       ? `Height: in service ${years[0]} (low) to ${years[1]} (high). Tall stitch = far apart in time.`
@@ -41,12 +43,12 @@ export default function ViewToggle({ view, onChange, years, utilityCount }: Prop
                 on ? "bg-accent text-surface" : "text-muted hover:bg-hover hover:text-text"
               }`}
             >
-              {o.label}
+              {compact ? o.label.replace("3D ", "") : o.label}
             </button>
           );
         })}
       </div>
-      {caption && (
+      {caption && !compact && (
         <p className="max-w-64 rounded-lg border border-line bg-surface/95 px-2.5 py-1.5 text-right text-[11px] leading-snug text-muted shadow-sm">
           {caption}
         </p>

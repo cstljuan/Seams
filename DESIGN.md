@@ -97,6 +97,13 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - **List follows the map**: from zoom 5.5 the list shows only pairs whose seam is on screen ("In view N of M", with Show all). The open pair always stays in the list.
 - Geometry and heights: `components/map3d.ts`. Heights scale with zoom (450 km of full height at zoom 3 down to 300 m at zoom 14).
 
+## Exploring the list (2026-10-29, handoff C)
+- Above the list: Sort (Severity, Soonest build, Closest in time, Biggest savings, Closest distance; `#rank` stays the severity rank), Group (Tier, Year, Utility pair, State; collapsible, paged per group), and List or Timeline.
+- Timeline (`components/TimelineView.tsx`): each pair's two build windows on one year axis in the side colours; shaded when both are being built. Projects without a start date show the year before in service, faded.
+- Savings line: "Coordinating these could save $X to $Y across N pairs, each project counted once" (`honestSavings` in `components/explore.ts`). Never adds ranges of pairs that share a project.
+- Spotlight (under the filters): one utility. List and map keep only its pairs, its projects take `--accent`, and a box ranks the utilities it collides with most.
+- Years button (next to the view switch) opens the year bar in 2D and 3D utility; 3D time always has it. The list keeps pairs where both projects are in service by the year; later seams fade on the map.
+
 ## Phones (2026-10-29)
 - Below 768 px: full-screen map with a draggable bottom sheet (`components/BottomSheet.tsx`): peek (124 px: count or the open pair, plus Overview or Close), half, full. Drag or tap the handle; a quick flick moves one stop. Only the handle drags, so the list scrolls normally.
 - Opening a pair from the list or the map drops the sheet to peek and frames the pair above it.

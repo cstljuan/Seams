@@ -116,7 +116,9 @@ function Data({ dataset }: { dataset: Dataset }) {
       <Section title="Cost of not coordinating">
         A Monte Carlo range (P10, P50, P90) built from public benchmarks: MISO MTEP transmission cost guides, ATRI
         trucking costs, LBNL outage-cost research and contractor mobilization norms. It is a model estimate, not a
-        utility quote. Pairs share projects, so ranges should not be added together.
+        utility quote. Pairs share projects, so ranges should not be added together. The savings line above the list
+        does this honestly: it takes pairs by median savings, skips any pair that reuses a project, and adds the P10
+        and P90 of the pairs it kept.
       </Section>
       <Section title="Basemap">OpenFreeMap tiles with OpenStreetMap data. If tiles fail, the ranked list still works.</Section>
       <Section title="What Seams does not do">

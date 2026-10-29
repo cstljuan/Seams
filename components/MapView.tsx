@@ -52,6 +52,8 @@ interface Props {
   showControls?: boolean;
   // Called after the camera stops, so the list can follow what is on screen.
   onViewChange?(view: MapViewState): void;
+  // A utility to highlight; its projects take the accent colour.
+  spotlight?: string;
   onSelect(id: string | null): void;
   onProjectClick(projectId: string): void;
   onTileError?(): void;
@@ -113,6 +115,7 @@ export default function MapView({
   padding = FIT_PADDING,
   showControls = true,
   onViewChange,
+  spotlight = "",
   onSelect,
   onProjectClick,
   onTileError,
@@ -330,9 +333,11 @@ export default function MapView({
     colors["--utility-a"],
     colorByUtility
       ? ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]]
-      : focusOn
-        ? ["case", FOCUSED, colors["--utility-a"], colors["--muted"]]
-        : colors["--muted"],
+      : spotlight
+        ? ["case", ["==", ["get", "utility"], spotlight], colors["--accent"], colors["--muted"]]
+        : focusOn
+          ? ["case", FOCUSED, colors["--utility-a"], colors["--muted"]]
+          : colors["--muted"],
   ];
   // Ribbons: the open pair's sides in their colours, everything else in the normal project colour, dimmed ones muted.
   // 3D ribbons keep the Seams colours: the open pair's sides in their colours, everything else in the

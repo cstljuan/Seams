@@ -15,6 +15,8 @@ import { timeRange, type MapView3D } from "./map3d";
 import ViewToggle from "./ViewToggle";
 import YearBar from "./YearBar";
 import ScopePicker, { stateName } from "./ScopePicker";
+import BottomSheet, { PEEK_PX, type SheetStop } from "./BottomSheet";
+import { useIsPhone } from "./useIsPhone";
 import LoadingScreen from "./LoadingScreen";
 import type { MapHandle } from "./MapView";
 import type { MascotReaction } from "./Mascot";
@@ -52,6 +54,8 @@ const TIER_LINES: Record<1 | 2 | 3 | 4, string> = {
 
 export default function SeamsApp() {
   const router = useRouter();
+  const phone = useIsPhone();
+  const [sheet, setSheet] = useState<SheetStop>("peek");
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const dataset = (useSyncExternalStore(datasetChoice.subscribe, datasetChoice.get, () => null) ?? DEFAULT_DATASET) as Dataset;
   const view = (useSyncExternalStore(mapViewChoice.subscribe, mapViewChoice.get, () => null) ?? "flat") as MapView3D;
@@ -207,6 +211,11 @@ export default function SeamsApp() {
   }, [data, selected]);
 
   const years = useMemo(() => (data ? timeRange(data.projects) : null), [data]);
+  // Phones keep framed pairs above the sheet at peek and below the top bar.
+  const mapPadding = useMemo(
+    () => (phone ? { top: 110, bottom: PEEK_PX + 40, left: 24, right: 24 } : { top: 90, bottom: 60, left: 140, right: 70 }),
+    [phone],
+  );
   const projectTypes = useMemo(() => new Set(data?.projects.map((p) => p.properties.type) ?? []), [data]);
 
   // Change filters. Drop the selection if the new filters hide it.
@@ -254,13 +263,14 @@ export default function SeamsApp() {
       }
       const o = data.overlaps.find((x) => x.id === id);
       if (!o) return;
+      if (phone) setSheet("peek");
       map.current?.fitBounds(overlapBounds(o, sides(o, index)));
       // Warn only for a real schedule match or a touching/very close pair. Otherwise just point at it.
       const reaction = o.time_overlap || o.tier <= 2 ? "alert" : "found";
       const timing = o.time_overlap ? " and both go into service within a year" : "";
       mascot.current?.say(`#${o.rank}: about ${formatKm(o.distance_km)} apart${timing}. ${TIER_LINES[o.tier]}`, reaction);
     },
-    [data, index, play],
+    [data, index, play, phone],
   );
 
   // Clicking a marker opens that project's best visible overlap, or just zooms to it.
@@ -334,8 +344,37 @@ export default function SeamsApp() {
     [play],
   );
 
+  const panel = (
+    <SidebarPanel
+      menuItems={[
+        { label: "Explore overlaps", onSelect: () => { setInfo(null); setSidebarOpen(true); setSheet("full"); } },
+        { label: "How it works", onSelect: () => setInfo("how") },
+        { label: "Data and methodology", onSelect: () => setInfo("data") },
+        { label: "Reset demo", onSelect: resetDemo },
+        { label: "Settings", onSelect: () => router.push("/settings") },
+      ]}
+      dataset={dataset}
+      onDatasetChange={changeDataset}
+      datasetDisabled={load.status === "loading" && !booting}
+      onPlace={onPlace}
+      onSearchBusy={onSearchBusy}
+      filters={filters}
+      onFiltersChange={changeFilters}
+      load={load}
+      visible={visible}
+      index={index}
+      selectedId={selected?.id ?? null}
+      onSelect={select}
+      onRetry={retry}
+    />
+  );
+
+  // On phones the overlays sit above the sheet at peek.
+  const aboveSheet = PEEK_PX + 12;
+  const selectedPair = selected ? sides(selected, index) : null;
+
   return (
-    <main className="flex h-full min-w-[1024px] bg-bg text-text" aria-busy={booting}>
+    <main className="flex h-full bg-bg text-text" aria-busy={booting}>
       {booting && <LoadingScreen phase={bootPhase} overlapCount={overlapCount} target={arcRect} onGone={onBooted} />}
       <section className="relative min-w-0 flex-1" aria-label="Map">
         <MapView
@@ -348,6 +387,8 @@ export default function SeamsApp() {
           utilities={data?.utilities ?? []}
           view={view}
           yearCursor={view === "time" ? yearCursor : null}
+          padding={mapPadding}
+          showControls={!phone}
           onSelect={select}
           onProjectClick={onProjectClick}
           onTileError={() => setTilesFailed(true)}
@@ -365,98 +406,131 @@ export default function SeamsApp() {
         {tilesFailed && (
           <div className="absolute inset-x-0 top-4 flex justify-center">
             <p role="alert" className="rounded-xl border border-tier-2 bg-surface px-4 py-2 text-xs shadow-sm">
-              Map tiles could not load. The ranked list on the right still works.
+              Map tiles could not load. The ranked list still works.
             </p>
           </div>
         )}
 
-        {view === "time" && years && years[1] > years[0] && (
-          <div className="pointer-events-none absolute bottom-[84px] left-28 right-3 z-10 flex justify-center">
-            <YearBar range={years} year={yearCursor} onChange={setYearCursor} />
+        {view === "time" && years && years[1] > years[0] && (!phone || sheet === "peek") && (
+          <div
+            className={`pointer-events-none absolute z-10 flex justify-center ${phone ? "inset-x-3" : "bottom-[84px] left-28 right-3"}`}
+            style={phone ? { bottom: aboveSheet } : undefined}
+          >
+            <YearBar range={years} year={yearCursor} onChange={setYearCursor} compact={phone} />
           </div>
         )}
 
-        <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 gap-1 rounded-xl border border-line bg-surface/95 p-1 text-xs shadow-md">
-          <button type="button" onClick={() => map.current?.overview()} className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover">
-            Overview
-          </button>
-          <button
-            type="button"
-            onClick={focusSelected}
-            disabled={!selected}
-            className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-          >
-            Focus selected
-          </button>
-          <button type="button" onClick={resetDemo} className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover">
-            Reset view
-          </button>
-        </div>
+        {!phone && (
+          <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 gap-1 whitespace-nowrap rounded-xl border border-line bg-surface/95 p-1 text-xs shadow-md max-lg:left-auto max-lg:right-3 max-lg:translate-x-0">
+            <button type="button" onClick={() => map.current?.overview()} className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover">
+              Overview
+            </button>
+            <button
+              type="button"
+              onClick={focusSelected}
+              disabled={!selected}
+              className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              Focus selected
+            </button>
+            <button type="button" onClick={resetDemo} className="rounded-lg px-3 py-1.5 font-medium hover:bg-hover">
+              Reset view
+            </button>
+          </div>
+        )}
 
         <InfoDrawer topic={info} dataset={dataset} onClose={() => setInfo(null)} />
 
-        <div className="pointer-events-none absolute right-12 top-2.5 z-10">
+        {/* Top bar. Desktop: scope and legend left, view switch right. Phone: one compact row, legend on demand. */}
+        <div
+          className={`pointer-events-none absolute z-10 ${phone ? "right-3 top-3" : "right-12 top-2.5"}`}
+          style={phone ? { top: "max(12px, env(safe-area-inset-top))" } : undefined}
+        >
           <ViewToggle
             view={view}
             onChange={(next) => mapViewChoice.set(next === "flat" ? null : next)}
             years={years}
             utilityCount={data?.utilities.length ?? 0}
+            compact={phone}
           />
         </div>
 
-        <div className="pointer-events-none absolute left-3 top-3 flex flex-col items-start gap-2">
+        <div
+          className="pointer-events-none absolute left-3 top-3 flex flex-col items-start gap-2"
+          style={phone ? { top: "max(12px, env(safe-area-inset-top))" } : undefined}
+        >
           {data && scopeStates.length > 2 && (
-            <ScopePicker scope={scope} states={scopeStates} count={visible.length} onChange={changeScope} />
+            <ScopePicker scope={scope} states={scopeStates} count={visible.length} onChange={changeScope} compact={phone} />
           )}
-          <MapLegend types={projectTypes} utilities={data?.utilities ?? []} illustrative={dataset === "illustrative"} />
+          <MapLegend types={projectTypes} utilities={data?.utilities ?? []} illustrative={dataset === "illustrative"} compact={phone} />
         </div>
 
-        <ArcCorner ref={mascot} tips={arcTips} hidden={booting} />
+        <ArcCorner ref={mascot} tips={arcTips} hidden={booting} compact={phone} bottom={phone ? aboveSheet + (view === "time" && sheet === "peek" ? 76 : 0) : undefined} />
 
-        <button
-          type="button"
-          onClick={() => setSidebarOpen((v) => !v)}
-          aria-expanded={sidebarOpen}
-          aria-controls="sidebar"
-          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-          className="absolute right-0 top-1/2 z-10 flex h-14 w-6 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 border-line bg-surface text-muted shadow-sm hover:text-text"
-        >
-          <ChevronIcon className={`h-4 w-4 transition-transform ${sidebarOpen ? "" : "rotate-180"}`} />
-        </button>
+        {!phone && (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-expanded={sidebarOpen}
+            aria-controls="sidebar"
+            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            className="absolute right-0 top-1/2 z-10 flex h-14 w-6 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 border-line bg-surface text-muted shadow-sm hover:text-text"
+          >
+            <ChevronIcon className={`h-4 w-4 transition-transform ${sidebarOpen ? "" : "rotate-180"}`} />
+          </button>
+        )}
       </section>
 
-      <aside
-        id="sidebar"
-        aria-label="Overlaps"
-        inert={!sidebarOpen}
-        onTransitionEnd={() => map.current?.resize()}
-        className={`flex h-full shrink-0 flex-col overflow-hidden border-l border-line bg-bg transition-[width] duration-300 ${
-          sidebarOpen ? "w-[30%] min-w-[360px] max-w-[520px]" : "w-0 min-w-0 border-l-0"
-        }`}
-      >
-        <SidebarPanel
-          menuItems={[
-            { label: "Explore overlaps", onSelect: () => { setInfo(null); setSidebarOpen(true); } },
-            { label: "How it works", onSelect: () => setInfo("how") },
-            { label: "Data and methodology", onSelect: () => setInfo("data") },
-            { label: "Reset demo", onSelect: resetDemo },
-            { label: "Settings", onSelect: () => router.push("/settings") },
-          ]}
-          dataset={dataset}
-          onDatasetChange={changeDataset}
-          datasetDisabled={load.status === "loading" && !booting}
-          onPlace={onPlace}
-          onSearchBusy={onSearchBusy}
-          filters={filters}
-          onFiltersChange={changeFilters}
-          load={load}
-          visible={visible}
-          index={index}
-          selectedId={selected?.id ?? null}
-          onSelect={select}
-          onRetry={retry}
-        />
-      </aside>
+      {phone ? (
+        <BottomSheet
+          stop={sheet}
+          onStop={setSheet}
+          summary={
+            <div className="flex min-h-11 items-center justify-between gap-3">
+              {selected && selectedPair ? (
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">
+                    #{selected.rank} {selectedPair[0].properties.utility} → {selectedPair[1].properties.utility}
+                    <span className="ml-2 font-mono text-xs font-normal text-muted">{formatKm(selected.distance_km)}</span>
+                  </p>
+                  <p className="truncate text-xs text-muted">{selectedPair[0].properties.name}</p>
+                </div>
+              ) : (
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">
+                    {data ? `${visible.length.toLocaleString("en-US")} overlaps` : "Loading overlaps…"}
+                    {scope && <span className="font-normal text-muted"> in {stateName(scope)}</span>}
+                  </p>
+                  <p className="text-xs text-muted">{dataset === "illustrative" ? "Illustrative data. Drag up for the list." : "Sperry sample. Drag up for the list."}</p>
+                </div>
+              )}
+              {selected ? (
+                <button type="button" onClick={() => select(null)} className="min-h-11 shrink-0 rounded-full border border-line px-4 text-xs font-medium">
+                  Close
+                </button>
+              ) : (
+                <button type="button" onClick={() => map.current?.overview()} className="min-h-11 shrink-0 rounded-full border border-line px-4 text-xs font-medium">
+                  Overview
+                </button>
+              )}
+            </div>
+          }
+        >
+          {panel}
+        </BottomSheet>
+      ) : (
+        <aside
+          id="sidebar"
+          aria-label="Overlaps"
+          inert={!sidebarOpen}
+          onTransitionEnd={() => map.current?.resize()}
+          className={`flex h-full shrink-0 flex-col overflow-hidden border-l border-line bg-bg transition-[width] duration-300 ${
+            sidebarOpen ? "w-[42%] min-w-[330px] max-w-[520px] lg:w-[30%] lg:min-w-[360px]" : "w-0 min-w-0 border-l-0"
+          }`}
+        >
+          {panel}
+        </aside>
+      )}
     </main>
   );
 }

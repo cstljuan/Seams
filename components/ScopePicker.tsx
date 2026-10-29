@@ -19,29 +19,33 @@ interface Props {
   states: [string, number][];
   count: number;
   onChange(scope: string): void;
+  // Phones: no "Scope" label or count chip, to fit beside the view switch.
+  compact?: boolean;
 }
 
 // Narrows the whole app to one state, so a dense national dataset stays readable. Sits top centre on the map.
-export default function ScopePicker({ scope, states, count, onChange }: Props) {
+export default function ScopePicker({ scope, states, count, onChange, compact = false }: Props) {
   return (
     <label className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-surface/95 py-1 pl-3.5 pr-1 shadow-md">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Scope</span>
+      {!compact && <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Scope</span>}
       <select
         value={scope}
         onChange={(e) => onChange(e.target.value)}
         aria-label="Scope"
-        className="min-h-8 cursor-pointer rounded-full bg-transparent pr-1 text-sm font-semibold text-text outline-none"
+        className={`min-h-8 cursor-pointer rounded-full bg-transparent pr-1 font-semibold text-text outline-none ${compact ? "max-w-[9.5rem] text-xs" : "text-sm"}`}
       >
-        <option value="">United States</option>
+        <option value="">{compact ? "All US" : "United States"}</option>
         {states.map(([code, n]) => (
           <option key={code} value={code}>
             {stateName(code)} ({n.toLocaleString("en-US")})
           </option>
         ))}
       </select>
-      <span className="rounded-full bg-hover px-2.5 py-1 font-mono text-xs text-muted" aria-live="polite">
-        {count.toLocaleString("en-US")}
-      </span>
+      {!compact && (
+        <span className="rounded-full bg-hover px-2.5 py-1 font-mono text-xs text-muted" aria-live="polite">
+          {count.toLocaleString("en-US")}
+        </span>
+      )}
     </label>
   );
 }

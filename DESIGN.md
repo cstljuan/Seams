@@ -95,6 +95,12 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - **Zoomed out on the big dataset**: only tier 1 and 2 seams show until zoom 5 to 6.5; project lines sit back at 22%.
 - Geometry and heights: `components/map3d.ts`. Heights scale with zoom (450 km of full height at zoom 3 down to 300 m at zoom 14).
 
+## Phones (2026-10-29)
+- Below 768 px: full-screen map with a draggable bottom sheet (`components/BottomSheet.tsx`): peek (124 px: count or the open pair, plus Overview or Close), half, full. Drag or tap the handle; a quick flick moves one stop. Only the handle drags, so the list scrolls normally.
+- Opening a pair from the list or the map drops the sheet to peek and frames the pair above it.
+- Top row: compact Scope picker, a "Legend" button that opens the legend, and the view switch with short labels. No zoom buttons (pinch). Arc is 56 px and sits above the sheet; the year bar sits above the sheet at peek.
+- 768 px and up keeps the desktop sidebar (42% wide on tablets, 30% from 1024 px).
+
 ## Rules
 - Never show a cost as one exact number; show a range.
 - Always label approximate distances ("Centroid" accuracy).

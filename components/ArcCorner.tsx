@@ -17,9 +17,15 @@ interface Props {
   // Lines Arc cycles through when clicked.
   tips: string[];
   hidden?: boolean;
+  // Phone layout: smaller Arc, no settings link, bubble kept on screen.
+  compact?: boolean;
+  // Distance from the bottom of the map in px (phones lift Arc above the sheet).
+  bottom?: number;
 }
 
 const SIZE = 96;
+// On phones Arc is smaller and sits just above the bottom sheet.
+const PHONE_SIZE = 56;
 // Reactions for a click, in turn, so two clicks in a row always look different.
 const CLICK_REACTIONS: MascotReaction[] = ["happy", "wink", "surprise", "success", "found"];
 const GESTURE_LINES: Record<MascotGesture, string[]> = {
@@ -35,7 +41,8 @@ const CHARS_PER_MS = 0.07;
 
 const pick = <T,>(list: T[]) => list[Math.floor(Math.random() * list.length)];
 
-export default function ArcCorner({ ref, tips, hidden = false }: Props) {
+export default function ArcCorner({ ref, tips, hidden = false, compact = false, bottom }: Props) {
+  const size = compact ? PHONE_SIZE : SIZE;
   const mascot = useRef<MascotHandle>(null);
   const box = useRef<HTMLButtonElement>(null);
   const [bubble, setBubble] = useState<{ id: number; text: string } | null>(null);
@@ -100,12 +107,12 @@ export default function ArcCorner({ ref, tips, hidden = false }: Props) {
   };
 
   return (
-    <div className={`absolute bottom-6 left-3 z-10 ${hidden ? "invisible" : ""}`}>
+    <div className={`absolute left-3 z-10 ${bottom === undefined ? "bottom-6" : ""} ${hidden ? "invisible" : ""}`} style={bottom === undefined ? undefined : { bottom }}>
       {bubble && (
         <div
           key={bubble.id}
           onClick={() => setBubble(null)}
-          className="absolute bottom-[78px] left-[84px] w-max max-w-[270px] origin-bottom-left cursor-default animate-[arc-bubble-in_260ms_cubic-bezier(.2,.9,.3,1.25)_both] rounded-2xl rounded-bl-md border border-line bg-surface px-3.5 py-2.5 text-sm leading-snug shadow-lg motion-reduce:animate-none"
+          className={`absolute w-max origin-bottom-left ${compact ? "bottom-[50px] left-[44px] max-w-[min(270px,70vw)]" : "bottom-[78px] left-[84px] max-w-[270px]"} cursor-default animate-[arc-bubble-in_260ms_cubic-bezier(.2,.9,.3,1.25)_both] rounded-2xl rounded-bl-md border border-line bg-surface px-3.5 py-2.5 text-sm leading-snug shadow-lg motion-reduce:animate-none`}
         >
           <Typed text={bubble.text} />
           <span aria-hidden className="absolute -bottom-[6px] left-3 h-3 w-3 rotate-45 border-b border-r border-line bg-surface" />
@@ -123,17 +130,17 @@ export default function ArcCorner({ ref, tips, hidden = false }: Props) {
         title="Click me. Or drag me."
         className="block rounded-full drop-shadow-[0_10px_14px_rgba(15,27,45,0.22)] transition-transform duration-200 hover:scale-[1.06] active:scale-95 motion-reduce:transition-none"
       >
-        <Mascot ref={mascot} size={SIZE} onState={onState} onGesture={onGesture} />
+        <Mascot ref={mascot} size={size} onState={onState} onGesture={onGesture} />
       </button>
-      {/* Colour and accessories live on the settings page now. */}
-      <Link
+      {/* Colour and accessories live on the settings page now. Phones reach it from the Menu. */}
+      {!compact && <Link
         href="/settings#arc"
         tabIndex={hidden ? -1 : undefined}
         className="absolute bottom-1 left-[92px] flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-muted shadow-sm hover:text-text"
       >
         <span className="h-2.5 w-2.5 rounded-full bg-arc" aria-hidden />
         Customize Arc
-      </Link>
+      </Link>}
     </div>
   );
 }

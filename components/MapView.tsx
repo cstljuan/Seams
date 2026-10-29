@@ -46,6 +46,10 @@ interface Props {
   view: MapView3D;
   // 3D time view: projects in service after this year are ghosted. Null shows everything.
   yearCursor: number | null;
+  // Room to keep clear when framing the map (phones keep the pair above the bottom sheet).
+  padding?: { top: number; bottom: number; left: number; right: number };
+  // Zoom buttons; phones pinch instead.
+  showControls?: boolean;
   onSelect(id: string | null): void;
   onProjectClick(projectId: string): void;
   onTileError?(): void;
@@ -92,6 +96,8 @@ export default function MapView({
   utilities,
   view,
   yearCursor,
+  padding = FIT_PADDING,
+  showControls = true,
   onSelect,
   onProjectClick,
   onTileError,
@@ -119,9 +125,9 @@ export default function MapView({
 
   const overview = useCallback(
     (duration = 1200) => {
-      if (dataBounds) map.current?.fitBounds(dataBounds, { padding: FIT_PADDING, maxZoom: 9, duration });
+      if (dataBounds) map.current?.fitBounds(dataBounds, { padding, maxZoom: 9, duration });
     },
-    [dataBounds],
+    [dataBounds, padding],
   );
 
   // Frame the project region whenever a new dataset arrives and the map is ready.
@@ -139,7 +145,7 @@ export default function MapView({
 
   useImperativeHandle(ref, () => ({
     fitBounds(bounds) {
-      map.current?.fitBounds(bounds, { padding: { ...FIT_PADDING, top: 110 }, maxZoom: 10, duration: 1400 });
+      map.current?.fitBounds(bounds, { padding: { ...padding, top: padding.top + 20 }, maxZoom: 10, duration: 1400 });
     },
     overview() {
       overview();
@@ -304,7 +310,7 @@ export default function MapView({
       }}
       attributionControl={{ compact: false }}
     >
-      <NavigationControl position="top-right" showCompass={is3d} visualizePitch />
+      {showControls && <NavigationControl position="top-right" showCompass={is3d} visualizePitch />}
 
       <Source id="project-lines" type="geojson" data={projectFeatures.lines}>
         <Layer

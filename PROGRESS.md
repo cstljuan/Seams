@@ -29,7 +29,7 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 23 | Data contract v2 (many utilities), illustrative US dataset, dataset toggle, GPU map, list paging, sidebar split | Juan (Opus session) | done | | [#26](https://github.com/cstljuan/Seams/pull/26) |
 | 24 | Settings page for Arc, theme, motion, units; remove dotted loading background; hexagons removed | Juan (Opus session) | done | | [#27](https://github.com/cstljuan/Seams/pull/27) |
 | 28 | 3D map view toggle (time height, utility floors), after the Tokyo Last Train Atlas | Juan (Opus session) | done on `cstljuan/map-3d` | | |
-| 25 | Phone layout: bottom sheet | Juan (session B) | todo | 23 | |
+| 25 | Phone layout: bottom sheet | Juan (Opus session) | done on `cstljuan/legible-map` | | |
 | 26 | Sort, group, timeline, time scrubber, savings counter, utility spotlight | Juan (session C) | todo | 23 | |
 | 27 | Deep links, command palette, plan export, Arc narration and easter eggs | Juan (session D) | todo | 23 | |
 

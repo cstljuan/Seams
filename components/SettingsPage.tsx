@@ -7,7 +7,7 @@ import { ACCESSORIES, arcAccessory } from "./arcAccessories";
 import { applyArcColor, arcColor } from "./ArcColorPicker";
 import { ChevronIcon } from "./icons";
 import Mascot, { type MascotHandle, type MascotReaction } from "./Mascot";
-import { applyMotion, motionChoice, unitsChoice, type Motion, type Units } from "./settings";
+import { applyMotion, mapViewChoice, motionChoice, unitsChoice, type Motion, type Units } from "./settings";
 import { THEME_KEY, setColorScheme } from "./useColorScheme";
 
 const PREVIEW_REACTIONS: { id: MascotReaction; label: string }[] = [
@@ -64,6 +64,7 @@ export default function SettingsPage() {
   const units = use<Units>(unitsChoice) ?? "km";
   const motion: Motion = use<string>(motionChoice) === "reduce" ? "reduce" : "system";
   const dataset = use<Dataset>(datasetChoice) ?? DEFAULT_DATASET;
+  const mapView = use<string>(mapViewChoice) ?? "flat";
   const [theme, setTheme] = useState<ThemePref>("system");
   const [swatches, setSwatches] = useState<string[]>([]);
   const brand = useSyncExternalStore(
@@ -222,6 +223,19 @@ export default function SettingsPage() {
                 options={[
                   { id: "system", label: "Follow device" },
                   { id: "reduce", label: "Reduce" },
+                ]}
+              />
+            </Card>
+
+            <Card title="Map view" hint="Same switch as the top right of the map. 3D views tilt the map and use height for a second dimension.">
+              <Segmented
+                label="Map view"
+                value={mapView}
+                onChange={(v) => mapViewChoice.set(v === "flat" ? null : v)}
+                options={[
+                  { id: "flat", label: "2D" },
+                  { id: "time", label: "3D time" },
+                  { id: "utility", label: "3D utility" },
                 ]}
               />
             </Card>

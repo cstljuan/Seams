@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import Map, { Layer, Marker, NavigationControl, Source, type MapRef } from "react-map-gl/maplibre";
-import type { LngLat, Overlap, Project, ProjectType } from "@/lib/data";
+import type { LngLat, Overlap, Project, ProjectType, UtilityInfo } from "@/lib/data";
+import { CAP, projectLevels, ribbons, stitches, type MapView3D } from "./map3d";
 import { SHAPES, shapeImage } from "./mapShapes";
 import { cleanText, projectCoords, sideVar } from "./overlaps";
 import { useColorScheme } from "./useColorScheme";
@@ -39,6 +40,9 @@ interface Props {
   // Colour projects by utility when there are only two (the Sperry sample). Otherwise they share one colour
   // and only the two sides of the open pair get their own.
   colorByUtility: boolean;
+  utilities: UtilityInfo[];
+  // Flat map, or a tilted 3D view with height for time or for utility.
+  view: MapView3D;
   onSelect(id: string | null): void;
   onProjectClick(projectId: string): void;
   onTileError?(): void;
@@ -47,6 +51,25 @@ interface Props {
 }
 
 const INTERACTIVE = ["overlap-lines-hit", "project-markers", "project-lines-hit"];
+const INTERACTIVE_3D = [...INTERACTIVE, "ribbons-coarse", "ribbons-fine", "stitches-coarse", "stitches-fine"];
+
+// 3D views: the camera tilt, and how tall the full height is at each zoom (metres), so ribbons stay
+// in proportion from the whole country down to one town.
+const PITCH_3D = 55;
+const BEARING_3D = -18;
+const HEIGHT_STOPS: [number, number][] = [
+  [3, 450_000],
+  [5, 130_000],
+  [7, 32_000],
+  [9, 8_000],
+  [11, 2_000],
+  [14, 300],
+];
+const height = (share: unknown) => ["interpolate", ["linear"], ["zoom"], ...HEIGHT_STOPS.flatMap(([z, m]) => [z, ["*", share, m]])];
+// Ribbons and stitches are wider when zoomed out, so they still read at country scale.
+const WIDTH_SPLIT_ZOOM = 6.5;
+const RIBBON_HALF = { coarse: 4_000, fine: 450 };
+const STITCH_HALF = { coarse: 3_000, fine: 320 };
 
 export default function MapView({
   ref,
@@ -55,6 +78,8 @@ export default function MapView({
   selectedId,
   dimmedProjectIds,
   colorByUtility,
+  utilities,
+  view,
   onSelect,
   onProjectClick,
   onTileError,
@@ -171,6 +196,29 @@ export default function MapView({
   );
 
   const big = projects.length >= BIG_DATASET;
+  const is3d = view !== "flat";
+
+  // Tilt the camera into 3D and back.
+  useEffect(() => {
+    if (!loaded) return;
+    map.current?.easeTo({ pitch: is3d ? PITCH_3D : 0, bearing: is3d ? BEARING_3D : 0, duration: 900 });
+  }, [is3d, loaded]);
+
+  const levels = useMemo(() => projectLevels(projects, utilities, view === "utility" ? "utility" : "time"), [projects, utilities, view]);
+  const solids = useMemo(() => {
+    if (!is3d) return null;
+    const props = (p: Project) => {
+      const id = p.properties.id;
+      const side: number = sideOf[id] ?? -1;
+      return { id, utility: p.properties.utility, side, dimmed: side === -1 && (hasSelection || dimmedProjectIds.has(id)) };
+    };
+    return {
+      ribbonsCoarse: ribbons(projects, levels, RIBBON_HALF.coarse, props),
+      ribbonsFine: ribbons(projects, levels, RIBBON_HALF.fine, props),
+      stitchesCoarse: stitches(overlaps, levels, STITCH_HALF.coarse, selectedId),
+      stitchesFine: stitches(overlaps, levels, STITCH_HALF.fine, selectedId),
+    };
+  }, [is3d, projects, overlaps, levels, sideOf, hasSelection, dimmedProjectIds, selectedId]);
 
   if (!colors) return <div className="h-full w-full bg-bg" />;
 
@@ -185,6 +233,8 @@ export default function MapView({
     colors["--utility-a"],
     colorByUtility ? ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]] : colors["--muted"],
   ];
+  // Ribbons: the open pair's sides in their colours, everything else in the normal project colour, dimmed ones muted.
+  const ribbonColor = ["case", ["all", ["get", "dimmed"], ["==", ["get", "side"], -1]], colors["--muted"], projectColor];
   const pairOpacity = (others: number) => ["case", ["get", "selected"], 1, others];
 
   return (
@@ -208,7 +258,7 @@ export default function MapView({
       }}
       mapStyle={STYLE_URLS[scheme]}
       style={{ width: "100%", height: "100%" }}
-      interactiveLayerIds={INTERACTIVE}
+      interactiveLayerIds={is3d ? INTERACTIVE_3D : INTERACTIVE}
       cursor={hovering ? "pointer" : "grab"}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
@@ -217,12 +267,12 @@ export default function MapView({
         if (!f) return;
         const layer = f.layer.id;
         const props = f.properties as Record<string, unknown>;
-        if (layer === "overlap-lines-hit") onSelect(props.id as string);
-        else if (layer === "project-markers" || layer === "project-lines-hit") onProjectClick(props.id as string);
+        if (layer === "overlap-lines-hit" || layer.startsWith("stitches")) onSelect(props.id as string);
+        else if (layer === "project-markers" || layer === "project-lines-hit" || layer.startsWith("ribbons")) onProjectClick(props.id as string);
       }}
       attributionControl={{ compact: false }}
     >
-      <NavigationControl position="top-right" showCompass={false} />
+      <NavigationControl position="top-right" showCompass={is3d} visualizePitch />
 
       <Source id="project-lines" type="geojson" data={projectFeatures.lines}>
         <Layer
@@ -272,6 +322,23 @@ export default function MapView({
         />
       </Source>
 
+      {solids && (
+        <>
+          <Source id="ribbons-coarse" type="geojson" data={solids.ribbonsCoarse}>
+            <SolidLayers id="coarse" source="ribbons-coarse" kind="ribbon" maxzoom={WIDTH_SPLIT_ZOOM} color={ribbonColor} />
+          </Source>
+          <Source id="ribbons-fine" type="geojson" data={solids.ribbonsFine}>
+            <SolidLayers id="fine" source="ribbons-fine" kind="ribbon" minzoom={WIDTH_SPLIT_ZOOM} color={ribbonColor} />
+          </Source>
+          <Source id="stitches-coarse" type="geojson" data={solids.stitchesCoarse}>
+            <SolidLayers id="coarse" source="stitches-coarse" kind="stitch" maxzoom={WIDTH_SPLIT_ZOOM} color={tierColor} />
+          </Source>
+          <Source id="stitches-fine" type="geojson" data={solids.stitchesFine}>
+            <SolidLayers id="fine" source="stitches-fine" kind="stitch" minzoom={WIDTH_SPLIT_ZOOM} color={tierColor} />
+          </Source>
+        </>
+      )}
+
       <Source id="project-markers" type="geojson" data={projectFeatures.markers}>
         <Layer
           id="project-markers"
@@ -300,7 +367,8 @@ export default function MapView({
             "icon-color": projectColor as any,
             "icon-halo-color": colors["--surface"],
             "icon-halo-width": 1.5,
-            "icon-opacity": ["case", ["get", "dimmed"], 0.3, 1],
+            // In 3D the ribbons carry the projects; the markers stay on the ground as faint shadows.
+            "icon-opacity": ["case", ["get", "dimmed"], is3d ? 0.15 : 0.3, ["==", ["get", "side"], -1], is3d ? 0.35 : 1, 1],
           }}
         />
       </Source>
@@ -327,6 +395,80 @@ export default function MapView({
             );
           })}
     </Map>
+  );
+}
+
+// The 3D solids. Ribbons: a see-through curtain from the ground (lines only) and a solid slab on top.
+// Stitches: one slab from the lower project's height to the higher one's, in the tier colour.
+// Layers inside a wrapper component do not get the source from <Source>, so it is passed in.
+function SolidLayers({
+  id,
+  source,
+  kind,
+  minzoom,
+  maxzoom,
+  color,
+}: {
+  id: string;
+  source: string;
+  kind: "ribbon" | "stitch";
+  minzoom?: number;
+  maxzoom?: number;
+  color: unknown;
+}) {
+  const zoom = { ...(minzoom !== undefined && { minzoom }), ...(maxzoom !== undefined && { maxzoom }) };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const c = color as any;
+  if (kind === "stitch") {
+    return (
+      <Layer
+        id={`stitches-${id}`}
+        source={source}
+        type="fill-extrusion"
+        {...zoom}
+        paint={{
+          "fill-extrusion-color": c,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "fill-extrusion-base": height(["get", "lo"]) as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "fill-extrusion-height": height(["get", "hi"]) as any,
+          "fill-extrusion-opacity": 0.9,
+        }}
+      />
+    );
+  }
+  return (
+    <>
+      <Layer
+        id={`curtains-${id}`}
+        source={source}
+        type="fill-extrusion"
+        filter={["get", "line"]}
+        {...zoom}
+        paint={{
+          "fill-extrusion-color": c,
+          "fill-extrusion-base": 0,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "fill-extrusion-height": height(["-", ["get", "top"], CAP]) as any,
+          "fill-extrusion-opacity": 0.18,
+          "fill-extrusion-vertical-gradient": true,
+        }}
+      />
+      <Layer
+        id={`ribbons-${id}`}
+        source={source}
+        type="fill-extrusion"
+        {...zoom}
+        paint={{
+          "fill-extrusion-color": c,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "fill-extrusion-base": height(["-", ["get", "top"], CAP]) as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "fill-extrusion-height": height(["get", "top"]) as any,
+          "fill-extrusion-opacity": 0.95,
+        }}
+      />
+    </>
   );
 }
 

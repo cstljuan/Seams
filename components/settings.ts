@@ -47,3 +47,6 @@ export function prefersReducedMotion(): boolean {
 export function useReducedMotion(): boolean {
   return useSyncExternalStore(subscribeMotion, prefersReducedMotion, () => false);
 }
+
+// Map view: flat, or tilted 3D with height for time or for utility (components/map3d.ts).
+export const mapViewChoice = savedChoice("seams.map-view", (v) => v === "flat" || v === "time" || v === "utility");

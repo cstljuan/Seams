@@ -10,6 +10,9 @@ import { ChevronIcon } from "./icons";
 import MapLegend from "./MapLegend";
 import ArcCorner, { type ArcCornerHandle } from "./ArcCorner";
 import SidebarPanel, { type LoadState } from "./Sidebar";
+import { mapViewChoice } from "./settings";
+import { timeRange, type MapView3D } from "./map3d";
+import ViewToggle from "./ViewToggle";
 import LoadingScreen from "./LoadingScreen";
 import type { MapHandle } from "./MapView";
 import type { MascotReaction } from "./Mascot";
@@ -49,6 +52,7 @@ export default function SeamsApp() {
   const router = useRouter();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const dataset = (useSyncExternalStore(datasetChoice.subscribe, datasetChoice.get, () => null) ?? DEFAULT_DATASET) as Dataset;
+  const view = (useSyncExternalStore(mapViewChoice.subscribe, mapViewChoice.get, () => null) ?? "flat") as MapView3D;
   const loadToken = useRef(0);
   // Set when the user switches datasets, so Arc says what changed once the new data is in.
   const announceSwitch = useRef(false);
@@ -169,6 +173,7 @@ export default function SeamsApp() {
     return tips;
   }, [data, selected]);
 
+  const years = useMemo(() => (data ? timeRange(data.projects) : null), [data]);
   const projectTypes = useMemo(() => new Set(data?.projects.map((p) => p.properties.type) ?? []), [data]);
 
   // Change filters. Drop the selection if the new filters hide it.
@@ -296,6 +301,8 @@ export default function SeamsApp() {
           selectedId={selected?.id ?? null}
           dimmedProjectIds={dimmedProjectIds}
           colorByUtility={(data?.utilities.length ?? 0) <= 2}
+          utilities={data?.utilities ?? []}
+          view={view}
           onSelect={select}
           onProjectClick={onProjectClick}
           onTileError={() => setTilesFailed(true)}
@@ -336,6 +343,15 @@ export default function SeamsApp() {
         </div>
 
         <InfoDrawer topic={info} dataset={dataset} onClose={() => setInfo(null)} />
+
+        <div className="pointer-events-none absolute right-12 top-2.5 z-10">
+          <ViewToggle
+            view={view}
+            onChange={(next) => mapViewChoice.set(next === "flat" ? null : next)}
+            years={years}
+            utilityCount={data?.utilities.length ?? 0}
+          />
+        </div>
 
         <div className="pointer-events-none absolute left-3 top-3">
           <MapLegend types={projectTypes} utilities={data?.utilities ?? []} illustrative={dataset === "illustrative"} />

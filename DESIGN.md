@@ -85,9 +85,10 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 
 ## Map view: 2D and 3D (2026-10-29)
 - Switch at the top right of the map (and on `/settings`): **2D**, **3D time**, **3D utility**. Saved as `seams.map-view`. The idea comes from the Tokyo Last Train Atlas reference in the vault: height carries a second dimension.
-- 3D tilts the camera (pitch 55, bearing -18). Each project becomes a thin ribbon floating at its height, with a see-through curtain down to the ground for line projects. Each overlap becomes a stitch from the lower project's height to the higher one's, in its tier colour, so a long time gap is a tall stitch and a schedule match is a short one.
+- 3D tilts the camera (pitch 55, bearing -18) under a soft light. Each project becomes a ribbon floating at its height in its utility's line colour (`--line-1` to `--line-12`, cycled A to Z, kept clear of the tier colours), with a see-through curtain to the ground for line projects and white station nodes at both ends, like a transit map. Ground lines turn into grey shadows; the seams stay as tier-coloured lines on the ground. The open pair gets one thin stitch in its tier colour from the lower ribbon to the higher, and every other project fades to a ghost.
+- 3D time has a year bar (after the Tokyo site's time bar): drag or press play to step through the years. Projects not in service yet are ghosted and their seams fade. "All years" clears it.
 - 3D time: height is the in-service date, earliest at the bottom. 3D utility: one floor per utility, A to Z from the ground up. A caption under the switch always says what height means.
-- Colours stay Seams: project colour as in 2D, the open pair's sides in `--utility-b` and `--utility-a`, stitches in tier colours. Ground markers and seam lines stay as faint shadows. No light columns, no aggregation shapes.
+- 2D keeps the Seams colours. No light columns, no aggregation shapes, no wall-sized stitches.
 - Geometry and heights: `components/map3d.ts`. Heights scale with zoom (450 km of full height at zoom 3 down to 300 m at zoom 14).
 
 ## Rules

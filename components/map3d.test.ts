@@ -52,3 +52,23 @@ describe("3D map geometry", () => {
     expect(point[0][0]).toHaveLength(5);
   });
 });
+
+describe("stations and colours", () => {
+  it("puts a station at both ends of a line and one on a point", async () => {
+    const { stations, projectLevels } = await import("./map3d");
+    const line = { ...project("l", "AAA", "2030-01-01"), geometry: { type: "LineString", coordinates: [[-84, 33], [-83.9, 33], [-83.8, 33.1]] } } as Project;
+    const point = project("p", "BBB", "2031-01-01");
+    const out = stations([line, point], projectLevels([line, point], [], "time"), 300);
+    expect(out.features).toHaveLength(3);
+    expect(out.features[0].properties!.year).toBe(2030);
+  });
+
+  it("gives utilities stable colour slots that cycle", async () => {
+    const { colourSlots, LINE_COLOURS } = await import("./map3d");
+    const many = Array.from({ length: LINE_COLOURS + 2 }, (_, i) => project(`p${i}`, `U${String(i).padStart(2, "0")}`, "2030-01-01"));
+    const slots = colourSlots(many, []);
+    expect(slots.get("U00")).toBe(0);
+    expect(slots.get(`U${LINE_COLOURS}`)).toBe(0);
+    expect(slots.get("U01")).toBe(1);
+  });
+});

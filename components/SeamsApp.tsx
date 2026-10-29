@@ -13,6 +13,7 @@ import SidebarPanel, { type LoadState } from "./Sidebar";
 import { mapViewChoice } from "./settings";
 import { timeRange, type MapView3D } from "./map3d";
 import ViewToggle from "./ViewToggle";
+import YearBar from "./YearBar";
 import LoadingScreen from "./LoadingScreen";
 import type { MapHandle } from "./MapView";
 import type { MascotReaction } from "./Mascot";
@@ -53,6 +54,7 @@ export default function SeamsApp() {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const dataset = (useSyncExternalStore(datasetChoice.subscribe, datasetChoice.get, () => null) ?? DEFAULT_DATASET) as Dataset;
   const view = (useSyncExternalStore(mapViewChoice.subscribe, mapViewChoice.get, () => null) ?? "flat") as MapView3D;
+  const [yearCursor, setYearCursor] = useState<number | null>(null);
   const loadToken = useRef(0);
   // Set when the user switches datasets, so Arc says what changed once the new data is in.
   const announceSwitch = useRef(false);
@@ -303,6 +305,7 @@ export default function SeamsApp() {
           colorByUtility={(data?.utilities.length ?? 0) <= 2}
           utilities={data?.utilities ?? []}
           view={view}
+          yearCursor={view === "time" ? yearCursor : null}
           onSelect={select}
           onProjectClick={onProjectClick}
           onTileError={() => setTilesFailed(true)}
@@ -322,6 +325,12 @@ export default function SeamsApp() {
             <p role="alert" className="rounded-xl border border-tier-2 bg-surface px-4 py-2 text-xs shadow-sm">
               Map tiles could not load. The ranked list on the right still works.
             </p>
+          </div>
+        )}
+
+        {view === "time" && years && years[1] > years[0] && (
+          <div className="pointer-events-none absolute bottom-[84px] left-28 right-3 z-10 flex justify-center">
+            <YearBar range={years} year={yearCursor} onChange={setYearCursor} />
           </div>
         )}
 

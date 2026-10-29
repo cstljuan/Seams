@@ -83,6 +83,13 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - Reduce motion sets `data-motion="reduce"` on `<html>` before paint and cuts CSS animation; `prefersReducedMotion()` covers the JS animation.
 - No decorative dot grid on the loading screen any more.
 
+## Map view: 2D and 3D (2026-10-29)
+- Switch at the top right of the map (and on `/settings`): **2D**, **3D time**, **3D utility**. Saved as `seams.map-view`. The idea comes from the Tokyo Last Train Atlas reference in the vault: height carries a second dimension.
+- 3D tilts the camera (pitch 55, bearing -18). Each project becomes a thin ribbon floating at its height, with a see-through curtain down to the ground for line projects. Each overlap becomes a stitch from the lower project's height to the higher one's, in its tier colour, so a long time gap is a tall stitch and a schedule match is a short one.
+- 3D time: height is the in-service date, earliest at the bottom. 3D utility: one floor per utility, A to Z from the ground up. A caption under the switch always says what height means.
+- Colours stay Seams: project colour as in 2D, the open pair's sides in `--utility-b` and `--utility-a`, stitches in tier colours. Ground markers and seam lines stay as faint shadows. No light columns, no aggregation shapes.
+- Geometry and heights: `components/map3d.ts`. Heights scale with zoom (450 km of full height at zoom 3 down to 300 m at zoom 14).
+
 ## Rules
 - Never show a cost as one exact number; show a range.
 - Always label approximate distances ("Centroid" accuracy).

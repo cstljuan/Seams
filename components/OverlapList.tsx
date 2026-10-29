@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
+import { plan } from "@/lib/plan";
 import { buildBrief, scheduleText } from "./brief";
 import type { Overlap, Project } from "@/lib/data";
 import { ChevronIcon, ClockIcon, InfoIcon } from "./icons";
@@ -202,12 +203,23 @@ function Details({ overlap: o, pair }: { overlap: Overlap; pair: [Project, Proje
 
 // Copy or download a plain-text coordination brief. Nothing leaves the browser.
 function BriefActions({ overlap, pair }: { overlap: Overlap; pair: [Project, Project] }) {
-  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+  const inPlan = useSyncExternalStore(plan.subscribe, () => plan.has(overlap.id), () => false);
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed" | "link">("idle");
   const text = () => buildBrief(overlap, pair);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text());
       setCopied("copied");
+    } catch {
+      setCopied("failed");
+    }
+    setTimeout(() => setCopied("idle"), 2500);
+  };
+  // The address bar already holds this pair (see lib/urlState.ts), so the link is the current page.
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied("link");
     } catch {
       setCopied("failed");
     }
@@ -231,9 +243,15 @@ function BriefActions({ overlap, pair }: { overlap: Overlap; pair: [Project, Pro
       <button type="button" onClick={download} className={btn}>
         Download .md
       </button>
+      <button type="button" onClick={copyLink} className={btn}>
+        {copied === "link" ? "Link copied" : "Copy link"}
+      </button>
+      <button type="button" onClick={() => plan.toggle(overlap.id)} aria-pressed={inPlan} className={`${btn} ${inPlan ? "border-accent text-accent" : ""}`}>
+        {inPlan ? "In plan (remove)" : "Add to plan"}
+      </button>
       <span className="w-full text-muted">A draft for people to review. Nothing is sent or saved.</span>
       <span className="sr-only" aria-live="polite">
-        {copied === "copied" ? "Brief copied" : copied === "failed" ? "Could not copy" : ""}
+        {copied === "copied" ? "Brief copied" : copied === "link" ? "Link copied" : copied === "failed" ? "Could not copy" : ""}
       </span>
     </div>
   );

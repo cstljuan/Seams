@@ -104,6 +104,13 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - Spotlight (under the filters): one utility. List and map keep only its pairs, its projects take `--accent`, and a box ranks the utilities it collides with most.
 - Years button (next to the view switch) opens the year bar in 2D and 3D utility; 3D time always has it. The list keeps pairs where both projects are in service by the year; later seams fade on the map.
 
+## Sharing and Arc (2026-10-29, handoff D)
+- **Deep links** (`lib/urlState.ts`): the address holds dataset, open pair, dates, time-only, scope, spotlight, map view, year and camera. Opening a pair adds a history entry, so Back closes it. "Copy link" sits with the brief buttons. Unknown pair ids are ignored and Arc says so. Only ids, dates and the camera go in the URL.
+- **Command palette** (`components/CommandPalette.tsx`): Cmd or Ctrl + K, or the search buttons (panel header, phone peek strip). Finds pairs (`#12`), projects, utilities (spotlight), states (scope) and actions.
+- **Coordination plan** (`lib/plan.ts`, `components/PlanTray.tsx`, `/plan`): "Add to plan" on a pair; a Plan pill with the count opens a tray to reorder, remove, download Markdown, or open the printable page (SVG sketch per pair, facts, per-pair cost range, never a total). Saved in the browser only.
+- **Arc narrates** each opened pair from the numbers only (`components/narrate.ts`): where, when, which projects, what they could share.
+- **Easter eggs**: a borrowed hard hat for a few seconds on tier 1 pairs (never saved, his own accessory wins), a cheer on the first tier 1 of a visit, and a dance for the Konami code or typing "arc" in the palette. Calm with reduced motion.
+
 ## Phones (2026-10-29)
 - Below 768 px: full-screen map with a draggable bottom sheet (`components/BottomSheet.tsx`): peek (124 px: count or the open pair, plus Overview or Close), half, full. Drag or tap the handle; a quick flick moves one stop. Only the handle drags, so the list scrolls normally.
 - Opening a pair from the list or the map drops the sheet to peek and frames the pair above it.

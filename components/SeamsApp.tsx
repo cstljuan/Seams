@@ -18,6 +18,14 @@ import ScopePicker, { stateName } from "./ScopePicker";
 import BottomSheet, { PEEK_PX, type SheetStop } from "./BottomSheet";
 import { useIsPhone } from "./useIsPhone";
 import { involves } from "./explore";
+import { narrate } from "./narrate";
+import CommandPalette, { type PaletteItem } from "./CommandPalette";
+import PlanTray from "./PlanTray";
+import { setColorScheme } from "./useColorScheme";
+import { SearchIcon } from "./icons";
+import { lentAccessory } from "./arcAccessories";
+import { prefersReducedMotion } from "./settings";
+import { buildUrlState, parseUrlState, type UrlState } from "@/lib/urlState";
 import LoadingScreen from "./LoadingScreen";
 import type { MapHandle, MapViewState } from "./MapView";
 import type { MascotReaction } from "./Mascot";
@@ -303,8 +311,8 @@ export default function SeamsApp() {
       map.current?.fitBounds(overlapBounds(o, sides(o, index)));
       // Warn only for a real schedule match or a touching/very close pair. Otherwise just point at it.
       const reaction = o.time_overlap || o.tier <= 2 ? "alert" : "found";
-      const timing = o.time_overlap ? " and both go into service within a year" : "";
-      mascot.current?.say(`#${o.rank}: about ${formatKm(o.distance_km)} apart${timing}. ${TIER_LINES[o.tier]}`, reaction);
+      const pair = sides(o, index);
+      mascot.current?.say(pair ? narrate(o, pair) : `#${o.rank}: about ${formatKm(o.distance_km)} apart. ${TIER_LINES[o.tier]}`, reaction);
     },
     [data, index, play, phone],
   );
@@ -381,6 +389,139 @@ export default function SeamsApp() {
     [play],
   );
 
+  // Shared links. Read once on load: the dataset and map view right away, the rest once the data is in.
+  const pendingUrl = useRef<UrlState | null>(null);
+  const urlReady = useRef(false);
+  useEffect(() => {
+    const u = parseUrlState(window.location.search);
+    pendingUrl.current = u;
+    if (u.dataset && u.dataset !== (datasetChoice.get() ?? DEFAULT_DATASET)) datasetChoice.set(u.dataset);
+    if (u.mapView) mapViewChoice.set(u.mapView === "flat" ? null : u.mapView);
+  }, []);
+  useEffect(() => {
+    const u = pendingUrl.current;
+    if (!u || !data || booting) return;
+    if (u.dataset && u.dataset !== data.dataset) return;
+    pendingUrl.current = null;
+    if (u.from || u.to || u.timeOnly) setFilters({ start: u.from ?? "", end: u.to ?? "", timeOnly: !!u.timeOnly });
+    if (u.scope) setScope(u.scope);
+    if (u.spotlight) setSpotlight(u.spotlight);
+    if (u.year !== undefined) {
+      setYearsOpen(true);
+      setYearCursor(u.year);
+    }
+    if (u.pair) {
+      if (data.overlaps.some((o) => o.id === u.pair)) setTimeout(() => select(u.pair!), 300);
+      else setTimeout(() => mascot.current?.say("That shared pair is not in this dataset. Here is everything instead.", "confused"), 300);
+    } else if (u.view) {
+      map.current?.flyTo([u.view[0], u.view[1]], u.view[2]);
+    }
+    setTimeout(() => (urlReady.current = true), 1_000);
+  }, [data, booting, select]);
+
+  // Keep the URL in step with the screen. Opening a pair adds a history entry, so Back closes it.
+  const lastPair = useRef<string | null>(null);
+  useEffect(() => {
+    if (!urlReady.current) return;
+    const center: [number, number, number] | undefined = mapView
+      ? [(mapView.bounds[0] + mapView.bounds[2]) / 2, (mapView.bounds[1] + mapView.bounds[3]) / 2, mapView.zoom]
+      : undefined;
+    const url = buildUrlState({
+      dataset,
+      pair: selectedId ?? undefined,
+      from: filters.start || undefined,
+      to: filters.end || undefined,
+      timeOnly: filters.timeOnly,
+      scope: scope || undefined,
+      spotlight: spotlight || undefined,
+      mapView: view,
+      year: activeYear ?? undefined,
+      view: selectedId ? undefined : center,
+    });
+    const href = `${window.location.pathname}${url}`;
+    if (selectedId && selectedId !== lastPair.current) window.history.pushState(null, "", href);
+    else window.history.replaceState(null, "", href);
+    lastPair.current = selectedId;
+  }, [dataset, selectedId, filters, scope, spotlight, view, activeYear, mapView]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const u = parseUrlState(window.location.search);
+      lastPair.current = u.pair ?? null;
+      if (u.pair && data?.overlaps.some((o) => o.id === u.pair)) select(u.pair);
+      else select(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [data, select]);
+
+  // Arc easter eggs. Each fires once per visit and stays calm with reduced motion.
+  const eggs = useRef({ dance: false, firstTouch: false });
+  const arcDance = useCallback(() => {
+    if (eggs.current.dance) return;
+    eggs.current.dance = true;
+    mascot.current?.say("You found my dance. Grid's looking good.", "happy");
+    if (prefersReducedMotion()) return;
+    const steps: MascotReaction[] = ["wink", "surprise", "success", "happy"];
+    steps.forEach((r, i) => setTimeout(() => void play(r), 700 * (i + 1)));
+  }, [play]);
+  useEffect(() => {
+    const code = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
+    let at = 0;
+    const onKey = (e: KeyboardEvent) => {
+      at = e.key === code[at] ? at + 1 : e.key === code[0] ? 1 : 0;
+      if (at === code.length) {
+        at = 0;
+        arcDance();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [arcDance]);
+  // Tier 1 pairs: Arc borrows a hard hat for a few seconds, and cheers the first one of the visit.
+  const lentTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    if (!selected || selected.tier !== 1) return;
+    lentAccessory.set("hard-hat");
+    clearTimeout(lentTimer.current);
+    lentTimer.current = setTimeout(() => lentAccessory.set(null), 6_000);
+    if (!eggs.current.firstTouch) {
+      eggs.current.firstTouch = true;
+      const t = setTimeout(() => void play("success"), 2_600);
+      return () => clearTimeout(t);
+    }
+  }, [selected, play]);
+  useEffect(() => () => lentAccessory.set(null), []);
+
+  // Command palette: Cmd or Ctrl + K anywhere, or the search buttons.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // A function, so the actions are built when the palette opens (they read refs, which cannot be read while rendering).
+  const paletteActions = useCallback((): PaletteItem[] => {
+    const act = (id: string, label: string, run: () => void, hint?: string): PaletteItem => ({ id: `action-${id}`, kind: "Action", label, hint, text: label.toLowerCase(), run });
+    return [
+      act("dataset", dataset === "illustrative" ? "Switch to the Sperry sample" : "Switch to the illustrative data", () => changeDataset(dataset === "illustrative" ? "sample" : "illustrative")),
+      act("2d", "Map view: 2D", () => mapViewChoice.set(null)),
+      act("3d-time", "Map view: 3D time", () => mapViewChoice.set("time")),
+      act("3d-utility", "Map view: 3D utility", () => mapViewChoice.set("utility")),
+      act("theme", "Toggle light and dark", () => setColorScheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark")),
+      act("overview", "Overview of everything", () => map.current?.overview()),
+      act("how", "How it works", () => setInfo("how")),
+      act("data", "Data and methodology", () => setInfo("data")),
+      act("reset", "Reset demo", resetDemo),
+      act("settings", "Settings", () => router.push("/settings"), "Arc, theme, units"),
+    ];
+  }, [dataset, changeDataset, resetDemo, router]);
+
   const panel = (
     <SidebarPanel
       menuItems={[
@@ -412,6 +553,7 @@ export default function SeamsApp() {
         mascot.current?.say(u ? `Spotlight on ${name ?? u}. Only its pairs are showing.` : "Spotlight off. Every utility is back.", "found");
       }}
       utilities={data?.utilities ?? []}
+      onOpenPalette={() => setPaletteOpen(true)}
     />
   );
 
@@ -421,6 +563,20 @@ export default function SeamsApp() {
 
   return (
     <main className="flex h-full bg-bg text-text" aria-busy={booting}>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        data={data}
+        actions={paletteActions}
+        onPair={(id) => select(id)}
+        onProject={onProjectClick}
+        onUtility={(code) => {
+          setSpotlight(code);
+          setSelectedId(null);
+        }}
+        onState={(code) => changeScope(code)}
+        onSecret={() => arcDance()}
+      />
       {booting && <LoadingScreen phase={bootPhase} overlapCount={overlapCount} target={arcRect} onGone={onBooted} />}
       <section className="relative min-w-0 flex-1" aria-label="Map">
         <MapView
@@ -488,6 +644,15 @@ export default function SeamsApp() {
         )}
 
         <InfoDrawer topic={info} dataset={dataset} onClose={() => setInfo(null)} />
+
+        {data && (
+          <div
+            className={`pointer-events-none absolute z-20 right-3 ${phone ? "" : showYears ? "bottom-44" : "bottom-24"}`}
+            style={phone ? { bottom: aboveSheet + (showYears && sheet === "peek" ? 76 : 0) } : undefined}
+          >
+            <PlanTray overlaps={data.overlaps} index={index} onOpen={select} />
+          </div>
+        )}
 
         {/* Top bar. Desktop: scope and legend left, view switch right. Phone: one compact row, legend on demand. */}
         <div
@@ -557,6 +722,14 @@ export default function SeamsApp() {
                   <p className="text-xs text-muted">{dataset === "illustrative" ? "Illustrative data. Drag up for the list." : "Sperry sample. Drag up for the list."}</p>
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                aria-label="Jump to"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line"
+              >
+                <SearchIcon className="h-4 w-4" />
+              </button>
               {selected ? (
                 <button type="button" onClick={() => select(null)} className="min-h-11 shrink-0 rounded-full border border-line px-4 text-xs font-medium">
                   Close

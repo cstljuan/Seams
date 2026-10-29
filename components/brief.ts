@@ -60,3 +60,30 @@ export function buildBrief(o: Overlap, pair: [Project, Project], generatedAt = n
   ];
   return lines.join("\n");
 }
+
+// A plan of several pairs, as one Markdown document. Each pair keeps its own range; the plan never
+// adds ranges together, because pairs can share projects.
+export function buildPlan(items: { overlap: Overlap; pair: [Project, Project] }[], generatedAt = new Date()): string {
+  const illustrative = items.some(({ pair }) => pair.some((p) => p.properties.synthetic));
+  const lines = [
+    `# Seams coordination plan: ${items.length} ${items.length === 1 ? "pair" : "pairs"}`,
+    ``,
+    `Generated ${generatedAt.toISOString().slice(0, 10)}${
+      illustrative ? " from the Seams illustrative dataset (made-up plans placed on real towns, not real utility projects)" : " from the Seams sample data"
+    }. Draft for human review. Nothing has been sent to any utility.`,
+    ``,
+    `| # | Pair | Distance | Tier | Schedule | Cost of not coordinating (P10 to P90) |`,
+    `|---|---|---|---|---|---|`,
+    ...items.map(
+      ({ overlap: o, pair }) =>
+        `| ${o.rank} | ${pair[0].properties.utility} and ${pair[1].properties.utility} | ${formatKm(o.distance_km)} | ${o.tier} | ${
+          o.time_overlap ? "match" : `${o.time_gap_days} days apart`
+        } | ${o.cost ? `${formatUsd(o.cost.p10)} to ${formatUsd(o.cost.p90)}` : "not estimated"} |`,
+    ),
+    ``,
+    `Ranges are per pair and are not added together: pairs can share a project.`,
+    ``,
+    ...items.flatMap(({ overlap, pair }) => ["---", "", ...buildBrief(overlap, pair, generatedAt).split("\n").slice(1)]),
+  ];
+  return lines.join("\n");
+}

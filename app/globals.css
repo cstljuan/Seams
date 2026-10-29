@@ -74,3 +74,12 @@ body {
     transform: none;
   }
 }
+
+/* Printing the coordination plan: let the page flow past one screen. */
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+  }
+}

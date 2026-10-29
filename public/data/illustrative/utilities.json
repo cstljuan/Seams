@@ -263,5 +263,110 @@
       "VA"
     ],
     "fictional": true
+  },
+  {
+    "code": "SPC",
+    "name": "Sunpine Cooperative",
+    "states": [
+      "FL",
+      "GA",
+      "AL"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "BLE",
+    "name": "Bayou Line Electric",
+    "states": [
+      "LA",
+      "MS"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "CRP",
+    "name": "Canyon Rim Power",
+    "states": [
+      "CO",
+      "UT",
+      "AZ",
+      "NM"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "SGP",
+    "name": "Sagebrush Power",
+    "states": [
+      "NV",
+      "ID",
+      "OR",
+      "WY"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "PHE",
+    "name": "Prairie Hollow Electric",
+    "states": [
+      "ND",
+      "SD",
+      "MN",
+      "NE"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "HCP",
+    "name": "Hollow Creek Power",
+    "states": [
+      "MO",
+      "AR",
+      "OK",
+      "KS"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "SME",
+    "name": "Saltmarsh Electric",
+    "states": [
+      "SC",
+      "GA",
+      "NC",
+      "FL"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "RWP",
+    "name": "Ridgeway Power",
+    "states": [
+      "KY",
+      "TN",
+      "WV",
+      "OH"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "PWE",
+    "name": "Pinewood Electric",
+    "states": [
+      "ME",
+      "NH",
+      "VT",
+      "NY"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "GPP",
+    "name": "Gulf Prairie Power",
+    "states": [
+      "TX",
+      "LA"
+    ],
+    "fictional": true
   }
 ]

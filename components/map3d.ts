@@ -2,7 +2,8 @@
 // "time": each project floats at a height set by its in-service date (later is higher).
 // "utility": each utility gets its own floor.
 // Projects become thin ribbons (fill-extrusion slabs) with a see-through curtain down to the ground,
-// and each overlap becomes a stitch between the two heights, so a long time gap is a tall stitch.
+// and the open overlap gets a stitch between the two heights, so a long time gap is a tall stitch.
+// Every other seam stays a tier-coloured line on the ground.
 // Pure functions; MapView turns heights into metres with a zoom-based scale.
 import type { LngLat, Overlap, Project, UtilityInfo } from "@/lib/data";
 
@@ -12,7 +13,9 @@ const R = 6_378_137;
 // Lowest ribbon still sits a little above the ground, so curtains and stitches show.
 const FLOOR = 0.08;
 // Ribbon thickness, as a share of the full height scale.
-export const CAP = 0.014;
+export const CAP = 0.02;
+// How many line colours the theme has (--line-1 to --line-12).
+export const LINE_COLOURS = 12;
 
 function toMercator([lng, lat]: LngLat): [number, number] {
   const clamped = Math.max(-85, Math.min(85, lat));
@@ -92,10 +95,39 @@ export function projectLevels(projects: Project[], utilities: UtilityInfo[], vie
 // Turns a 0..1 level into the share of the height scale where the ribbon's top sits.
 export const top = (level: number) => FLOOR + (1 - FLOOR) * level;
 
+export function projectYears(projects: Project[]): Map<string, number> {
+  return new Map(projects.map((p) => [p.properties.id, yearOf(p)]));
+}
+
 // The years at the bottom and top of the time view, for the caption.
 export function timeRange(projects: Project[]): [number, number] | null {
   const years = projects.map((p) => Number(p.properties.in_service.slice(0, 4))).filter(Number.isFinite);
   return years.length ? [Math.min(...years), Math.max(...years)] : null;
+}
+
+// Each utility's line colour slot, A to Z, cycling through the theme's line colours.
+export function colourSlots(projects: Project[], utilities: UtilityInfo[]): Map<string, number> {
+  const codes = [...new Set([...utilities.map((u) => u.code), ...projects.map((p) => p.properties.utility)])].sort();
+  return new Map(codes.map((c, i) => [c, i % LINE_COLOURS]));
+}
+
+const yearOf = (p: Project) => Number(p.properties.in_service.slice(0, 4)) || 0;
+
+// Station nodes: both ends of every line project, and every point project, at the ribbon's height.
+export function stations(projects: Project[], levels: Map<string, number>, half: number): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const p of projects) {
+    const t = top(levels.get(p.properties.id) ?? 0);
+    const ends = p.geometry.type === "Point" ? [p.geometry.coordinates] : [p.geometry.coordinates[0], p.geometry.coordinates.at(-1)!];
+    for (const at of ends) {
+      features.push({
+        type: "Feature",
+        properties: { id: p.properties.id, top: t, year: yearOf(p) },
+        geometry: { type: "Polygon", coordinates: [square(at, half)] },
+      });
+    }
+  }
+  return { type: "FeatureCollection", features };
 }
 
 export function ribbons(
@@ -111,7 +143,7 @@ export function ribbons(
       const t = top(levels.get(p.properties.id) ?? 0);
       return {
         type: "Feature",
-        properties: { ...props(p), top: t, line: p.geometry.type === "LineString" },
+        properties: { ...props(p), top: t, year: yearOf(p), line: p.geometry.type === "LineString" },
         geometry: footprint(coords, half),
       };
     }),
@@ -122,7 +154,7 @@ export function stitches(
   overlaps: Overlap[],
   levels: Map<string, number>,
   half: number,
-  selectedId: string | null,
+  years?: Map<string, number>,
 ): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
@@ -131,9 +163,19 @@ export function stitches(
       const b = top(levels.get(o.b) ?? 0);
       return {
         type: "Feature",
-        properties: { id: o.id, tier: o.tier, selected: o.id === selectedId, lo: Math.min(a, b) - CAP, hi: Math.max(a, b) },
-        geometry: footprint(o.closest_points, half),
+        // year: when the later of the two is in service, so the year bar can show the seam once both exist.
+        properties: {
+          id: o.id,
+          tier: o.tier,
+          lo: Math.min(a, b) - CAP,
+          hi: Math.max(a, b),
+          year: Math.max(years?.get(o.a) ?? 0, years?.get(o.b) ?? 0),
+        },
+        // One thin stitch at the middle of the gap, not a wall along it.
+        geometry: footprint([midpoint(o.closest_points)], half),
       };
     }),
   };
 }
+
+const midpoint = ([a, b]: [LngLat, LngLat]): LngLat => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];

@@ -12,7 +12,7 @@ const byId = new Map(projects.map((p) => [p.properties.id, p]));
 
 describe("illustrative dataset", () => {
   it("is big enough to need hexagons", () => {
-    expect(projects.length).toBeGreaterThan(500);
+    expect(projects.length).toBeGreaterThan(3000);
     expect(overlaps.length).toBeGreaterThan(500);
   });
 
@@ -22,7 +22,8 @@ describe("illustrative dataset", () => {
       const b = byId.get(o.b);
       expect(a && b).toBeTruthy();
       expect(a!.properties.utility).not.toBe(b!.properties.utility);
-      expect(o.distance_km).toBeLessThan(40);
+      // Rounded to 2 decimals, so 39.996 km shows as 40.00.
+      expect(o.distance_km).toBeLessThanOrEqual(40);
       expect(o.cost && o.cost.p10 <= o.cost.p50 && o.cost.p50 <= o.cost.p90).toBe(true);
     }
   });

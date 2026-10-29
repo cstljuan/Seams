@@ -83,7 +83,7 @@ function Data({ dataset }: { dataset: Dataset }) {
     <>
       {dataset === "illustrative" ? (
         <Section title="Projects: illustrative dataset">
-          About 800 made-up projects from 23 utilities, placed on real US towns with routes drawn between them. 21 of
+          About 3,400 made-up projects from 33 utilities, placed on real US towns with routes drawn between them. 31 of
           the utilities are invented. DESC and Georgia Power appear with their 10 real projects from the Sperry Tech
           GridLock sample. The made-up projects are not real utility plans; they show how Seams behaves at national
           scale. Switch to the Sperry sample at the top of the panel to see real data only.

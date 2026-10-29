@@ -53,7 +53,7 @@ Install Node.js, run `npm install`, then `npm run dev` and open the local URL. `
 - Sperry Tech GridLock sample package
 - Utility filings
 - OpenStreetMap
-- An illustrative dataset (the default view): about 800 made-up projects from 23 utilities, placed on real US towns. Only DESC and Georgia Power, with their 10 real sample projects, are real; the other 21 utilities are invented. The app labels it "Illustrative data" everywhere. Switch to "Sperry sample" for real data only. Rebuild it with `npm run generate:illustrative`.
+- An illustrative dataset (the default view): about 3,400 made-up projects from 33 utilities, placed on real US towns in all 48 lower states (GeoNames). Only DESC and Georgia Power, with their 10 real sample projects, are real; the other 31 utilities are invented. The app labels it "Illustrative data" everywhere. Switch to "Sperry sample" for real data only. Rebuild it with `npm run generate:illustrative`.
 
 ## Assumptions and limits
 

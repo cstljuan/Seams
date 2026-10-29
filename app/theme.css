@@ -33,6 +33,21 @@
   --utility-a: #1f3a5f;
   --utility-b: #0e9384;
 
+  /* Line colours for the 3D views, one per utility (cycled), like train lines on a transit map.
+     Kept away from the tier reds, oranges and yellows so the seams still stand out. */
+  --line-1: #2563c9;
+  --line-2: #0e9384;
+  --line-3: #7c3aed;
+  --line-4: #db2777;
+  --line-5: #15803d;
+  --line-6: #0891b2;
+  --line-7: #9333ea;
+  --line-8: #8a5a2b;
+  --line-9: #4f46e5;
+  --line-10: #be185d;
+  --line-11: #047857;
+  --line-12: #475569;
+
   --font-sans: var(--font-afacad), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -54,4 +69,17 @@
 
   --utility-a: #b8c7ff;
   --utility-b: #3ddcb4;
+
+  --line-1: #7aa7ff;
+  --line-2: #3ddcb4;
+  --line-3: #a78bfa;
+  --line-4: #f472b6;
+  --line-5: #4ade80;
+  --line-6: #22d3ee;
+  --line-7: #c084fc;
+  --line-8: #d4a373;
+  --line-9: #818cf8;
+  --line-10: #f0abfc;
+  --line-11: #34d399;
+  --line-12: #a7b4c6;
 }

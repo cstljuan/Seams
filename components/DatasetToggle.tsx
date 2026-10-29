@@ -9,7 +9,7 @@ interface Props {
 }
 
 const OPTIONS: { id: Dataset; label: string; hint: string }[] = [
-  { id: "illustrative", label: "Illustrative", hint: "About 800 made-up projects on real US towns" },
+  { id: "illustrative", label: "Illustrative", hint: "About 3,400 made-up projects on real US towns" },
   { id: "sample", label: "Sperry sample", hint: "The 10 real projects from the GridLock sample" },
 ];
 

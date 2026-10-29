@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import Map, { Layer, Marker, NavigationControl, Source, type MapRef } from "react-map-gl/maplibre";
 import type { LngLat, Overlap, Project, ProjectType } from "@/lib/data";
-import { cleanText, projectCoords, utilityVar } from "./overlaps";
+import { hexbin } from "./hexbins";
+import { SHAPES, shapeImage } from "./mapShapes";
+import { cleanText, projectCoords, sideVar } from "./overlaps";
 import { useColorScheme } from "./useColorScheme";
 import { useThemeColors } from "./useThemeColors";
 
@@ -12,9 +14,20 @@ const STYLE_URLS = {
   dark: "https://tiles.openfreemap.org/styles/dark",
 };
 // Only used until the data arrives; then the camera fits the projects.
-const START_VIEW = { longitude: -81.6, latitude: 32.6, zoom: 6.3 };
+const START_VIEW = { longitude: -96, latitude: 38.5, zoom: 3.4 };
 // Leaves room for the legend (top left) and Arc (bottom left).
 const FIT_PADDING = { top: 90, bottom: 60, left: 140, right: 70 };
+
+// With this many overlaps or more, the zoomed-out map shows hexagons instead of every line.
+const HEX_MIN_OVERLAPS = 150;
+// Hexagon sizes in Web Mercator metres, and the zoom where the map switches from hexagons to pairs.
+const HEX_COARSE = 150_000;
+const HEX_FINE = 60_000;
+const HEX_SPLIT_ZOOM = 4.3;
+const PAIRS_ZOOM = 5.8;
+
+const SHAPE_IDS = Object.keys(SHAPES) as ProjectType[];
+const shapeId = (t: ProjectType) => `seams-shape-${t}`;
 
 export interface MapHandle {
   fitBounds(bounds: [LngLat, LngLat]): void;
@@ -29,6 +42,9 @@ interface Props {
   overlaps: Overlap[];
   selectedId: string | null;
   dimmedProjectIds: Set<string>;
+  // Colour projects by utility when there are only two (the Sperry sample). Otherwise they share one colour
+  // and only the two sides of the open pair get their own.
+  colorByUtility: boolean;
   onSelect(id: string | null): void;
   onProjectClick(projectId: string): void;
   onTileError?(): void;
@@ -36,7 +52,20 @@ interface Props {
   onReady?(): void;
 }
 
-export default function MapView({ ref, projects, overlaps, selectedId, dimmedProjectIds, onSelect, onProjectClick, onTileError, onReady }: Props) {
+const INTERACTIVE = ["overlap-lines-hit", "project-markers", "project-lines-hit", "hex-fill-coarse", "hex-fill-fine"];
+
+export default function MapView({
+  ref,
+  projects,
+  overlaps,
+  selectedId,
+  dimmedProjectIds,
+  colorByUtility,
+  onSelect,
+  onProjectClick,
+  onTileError,
+  onReady,
+}: Props) {
   const map = useRef<MapRef>(null);
   const [loaded, setLoaded] = useState(false);
   const tileErrorSent = useRef(false);
@@ -44,11 +73,16 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
   const dataBounds = useMemo<[LngLat, LngLat] | null>(() => {
     const pts = projects.flatMap(projectCoords);
     if (!pts.length) return null;
-    const lngs = pts.map((p) => p[0]);
-    const lats = pts.map((p) => p[1]);
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+    for (const [lng, lat] of pts) {
+      w = Math.min(w, lng);
+      e = Math.max(e, lng);
+      s = Math.min(s, lat);
+      n = Math.max(n, lat);
+    }
     return [
-      [Math.min(...lngs), Math.min(...lats)],
-      [Math.max(...lngs), Math.max(...lats)],
+      [w, s],
+      [e, n],
     ];
   }, [projects]);
 
@@ -59,13 +93,15 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
     [dataBounds],
   );
 
-  // Frame the real project region once both the map and the data are ready.
-  const framed = useRef(false);
+  // Frame the project region whenever a new dataset arrives and the map is ready.
+  const framedFor = useRef<[LngLat, LngLat] | null>(null);
   useEffect(() => {
-    if (!loaded || !dataBounds || framed.current) return;
-    framed.current = true;
-    overview(0);
+    if (!loaded || !dataBounds || framedFor.current === dataBounds) return;
+    const first = framedFor.current === null;
+    framedFor.current = dataBounds;
+    overview(first ? 0 : 1200);
   }, [loaded, dataBounds, overview]);
+
   const colors = useThemeColors();
   const scheme = useColorScheme();
   const [hovering, setHovering] = useState(false);
@@ -85,8 +121,48 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
     },
   }));
 
+  // Marker shapes live in the map style, so add them again after every style load (theme switches reload it).
+  const addShapes = useCallback(() => {
+    const m = map.current?.getMap();
+    if (!m) return;
+    for (const t of SHAPE_IDS) if (!m.hasImage(shapeId(t))) m.addImage(shapeId(t), shapeImage(t), { sdf: true, pixelRatio: 2 });
+  }, []);
+
   const selected = overlaps.find((o) => o.id === selectedId) ?? null;
-  const selectedProjects = new Set(selected ? [selected.a, selected.b] : []);
+  const hasSelection = selected !== null;
+  // Side 0 or 1 for the two projects in the open pair, matching the list (higher utility code first).
+  const sideOf = useMemo(() => {
+    const out: Record<string, 0 | 1> = {};
+    if (!selected) return out;
+    const a = projects.find((p) => p.properties.id === selected.a);
+    const b = projects.find((p) => p.properties.id === selected.b);
+    const aFirst = !a || !b || a.properties.utility > b.properties.utility;
+    out[selected.a] = aFirst ? 0 : 1;
+    out[selected.b] = aFirst ? 1 : 0;
+    return out;
+  }, [selected, projects]);
+
+  const projectFeatures = useMemo(() => {
+    const markers: GeoJSON.Feature[] = [];
+    const lines: GeoJSON.Feature[] = [];
+    for (const p of projects) {
+      const id = p.properties.id;
+      const side: number = sideOf[id] ?? -1;
+      const properties = {
+        id,
+        utility: p.properties.utility,
+        type: p.properties.type,
+        side,
+        dimmed: side === -1 && (hasSelection || dimmedProjectIds.has(id)),
+      };
+      markers.push({ type: "Feature", properties, geometry: { type: "Point", coordinates: markerPoint(p) } });
+      if (p.geometry.type === "LineString") lines.push({ type: "Feature", properties, geometry: p.geometry });
+    }
+    return {
+      markers: { type: "FeatureCollection", features: markers } as GeoJSON.FeatureCollection,
+      lines: { type: "FeatureCollection", features: lines } as GeoJSON.FeatureCollection,
+    };
+  }, [projects, sideOf, hasSelection, dimmedProjectIds]);
 
   const overlapLines = useMemo<GeoJSON.FeatureCollection>(
     () => ({
@@ -100,29 +176,45 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
     [overlaps, selectedId],
   );
 
-  const projectLines = useMemo<GeoJSON.FeatureCollection>(
-    () => ({
-      type: "FeatureCollection",
-      features: projects
-        .filter((p) => p.geometry.type === "LineString")
-        .map((p) => ({ type: "Feature", properties: { utility: p.properties.utility }, geometry: p.geometry })),
-    }),
-    [projects],
+  const useHex = overlaps.length >= HEX_MIN_OVERLAPS;
+  const hexes = useMemo(
+    () => (useHex ? { coarse: hexbin(overlaps, HEX_COARSE), fine: hexbin(overlaps, HEX_FINE) } : null),
+    [overlaps, useHex],
   );
 
-  const tierColor = colors
-    ? ["match", ["get", "tier"], 1, colors["--tier-1"], 2, colors["--tier-2"], 3, colors["--tier-3"], colors["--tier-4"]]
-    : null;
-  const hasSelection = selectedId !== null;
+  if (!colors) return <div className="h-full w-full bg-bg" />;
+
+  const tierColor = ["match", ["get", "tier"], 1, colors["--tier-1"], 2, colors["--tier-2"], 3, colors["--tier-3"], colors["--tier-4"]];
+  // Sides of the open pair first, then by utility (sample) or one shared colour (many utilities).
+  const projectColor = [
+    "match",
+    ["get", "side"],
+    0,
+    colors["--utility-b"],
+    1,
+    colors["--utility-a"],
+    colorByUtility ? ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]] : colors["--muted"],
+  ];
+  // Pairs fade in as hexagons fade out, so the two never fight for attention.
+  // MapLibre only allows ["zoom"] at the top of an expression, so the fade wraps the per-feature value.
+  const pairOpacity = (others: number) => {
+    const value = (o: number) => ["case", ["get", "selected"], 1, o];
+    return useHex
+      ? ["interpolate", ["linear"], ["zoom"], PAIRS_ZOOM - 0.8, value(hasSelection ? others : 0), PAIRS_ZOOM, value(others)]
+      : value(others);
+  };
+  const hexFade = (full: unknown) => ["interpolate", ["linear"], ["zoom"], PAIRS_ZOOM - 0.8, full, PAIRS_ZOOM, 0];
 
   return (
     <Map
       ref={map}
       initialViewState={START_VIEW}
       onLoad={() => {
+        addShapes();
         setLoaded(true);
         onReady?.();
       }}
+      onStyleData={addShapes}
       onError={(e) => {
         // Tile or style failures: tell the app once so the list can carry on alone.
         if (tileErrorSent.current) return;
@@ -134,105 +226,200 @@ export default function MapView({ ref, projects, overlaps, selectedId, dimmedPro
       }}
       mapStyle={STYLE_URLS[scheme]}
       style={{ width: "100%", height: "100%" }}
-      interactiveLayerIds={["overlap-lines-hit"]}
+      interactiveLayerIds={INTERACTIVE}
       cursor={hovering ? "pointer" : "grab"}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
       onClick={(e) => {
-        const id = e.features?.[0]?.properties?.id as string | undefined;
-        if (id) onSelect(id);
+        const f = e.features?.[0];
+        if (!f) return;
+        const layer = f.layer.id;
+        const props = f.properties as Record<string, unknown>;
+        if (layer === "overlap-lines-hit") onSelect(props.id as string);
+        else if (layer === "project-markers" || layer === "project-lines-hit") onProjectClick(props.id as string);
+        else if (layer.startsWith("hex-fill")) {
+          // Properties come back as JSON strings for arrays.
+          const raw = props.bbox;
+          const [w, s, east, n] = (typeof raw === "string" ? JSON.parse(raw) : raw) as number[];
+          map.current?.fitBounds(
+            [
+              [w, s],
+              [east, n],
+            ],
+            { padding: 80, maxZoom: Math.max(PAIRS_ZOOM + 0.6, e.target.getZoom() + 1.5), duration: 1000 },
+          );
+        }
       }}
       attributionControl={{ compact: false }}
     >
       <NavigationControl position="top-right" showCompass={false} />
 
-      {colors && (
-        <Source id="project-lines" type="geojson" data={projectLines}>
-          <Layer
-            id="project-lines"
-            type="line"
-            layout={{ "line-cap": "round" }}
-            paint={{
-              "line-width": 3,
-              "line-opacity": hasSelection ? 0.35 : 0.9,
-              "line-color": ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]],
-            }}
-          />
-        </Source>
+      {hexes && (
+        <>
+          <Source id="hex-coarse" type="geojson" data={hexes.coarse}>
+            <HexLayers id="coarse" source="hex-coarse" maxzoom={HEX_SPLIT_ZOOM} colors={colors} fade={hexFade} hidden={hasSelection} />
+          </Source>
+          <Source id="hex-fine" type="geojson" data={hexes.fine}>
+            <HexLayers id="fine" source="hex-fine" minzoom={HEX_SPLIT_ZOOM} colors={colors} fade={hexFade} hidden={hasSelection} />
+          </Source>
+        </>
       )}
 
-      {colors && tierColor && (
-        <Source id="overlap-lines" type="geojson" data={overlapLines}>
-          <Layer
-            id="overlap-lines-casing"
-            type="line"
-            layout={{ "line-cap": "round" }}
-            paint={{
-              "line-color": colors["--surface"],
-              "line-width": ["case", ["get", "selected"], 11, 6],
-              "line-opacity": ["case", ["get", "selected"], 1, hasSelection ? 0.4 : 0.9],
-            }}
-          />
-          <Layer
-            id="overlap-lines"
-            type="line"
-            layout={{ "line-cap": "round" }}
-            paint={{
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              "line-color": tierColor as any,
-              "line-width": ["case", ["get", "selected"], 7, 3],
-              "line-opacity": ["case", ["get", "selected"], 1, hasSelection ? 0.35 : 0.9],
-            }}
-          />
-          {/* Wide invisible line so thin lines are easy to click. */}
-          <Layer id="overlap-lines-hit" type="line" paint={{ "line-color": colors["--text"], "line-width": 16, "line-opacity": 0 }} />
-        </Source>
-      )}
+      <Source id="project-lines" type="geojson" data={projectFeatures.lines}>
+        <Layer
+          id="project-lines"
+          type="line"
+          layout={{ "line-cap": "round", "line-join": "round" }}
+          paint={{
+            "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 7, 2.5, 10, 3.5],
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-color": projectColor as any,
+            "line-opacity": ["case", ["get", "dimmed"], 0.18, ["==", ["get", "side"], -1], useHex ? 0.55 : 0.9, 1],
+          }}
+        />
+        <Layer id="project-lines-hit" type="line" paint={{ "line-color": colors["--text"], "line-width": 10, "line-opacity": 0 }} />
+      </Source>
 
-      {projects.map((p) => {
-        const [lng, lat] = markerPoint(p);
-        const isSelected = selectedProjects.has(p.properties.id);
-        const dimmed = (dimmedProjectIds.has(p.properties.id) || (hasSelection && !isSelected)) && !isSelected;
-        return (
-          <Marker
-            key={p.properties.id}
-            longitude={lng}
-            latitude={lat}
-            anchor="center"
-            style={{ zIndex: isSelected ? 2 : 1 }}
-            onClick={(e) => {
-              e.originalEvent.stopPropagation();
-              onProjectClick(p.properties.id);
-            }}
-          >
-            <div
-              title={`${p.properties.utility}: ${cleanText(p.properties.name)}`}
-              className="cursor-pointer transition-[opacity,transform] duration-200"
-              style={{
-                opacity: dimmed ? 0.3 : 1,
-                transform: isSelected ? "scale(1.5)" : undefined,
-                color: utilityVar(p.properties.utility),
-              }}
-            >
-              <MarkerShape type={p.properties.type} />
-            </div>
-            {isSelected && (
-              <div
-                className={`pointer-events-none absolute left-1/2 max-w-56 -translate-x-1/2 rounded-md ${
-                  p.properties.utility === "GPC" ? "bottom-full mb-2" : "top-full mt-2"
-                } border border-line bg-surface px-2 py-1 text-[11px] leading-tight text-text shadow-md`}
-                style={{ width: "max-content" }}
-              >
-                <span className="font-semibold" style={{ color: utilityVar(p.properties.utility) }}>
-                  {p.properties.utility}
-                </span>{" "}
-                <span className="line-clamp-2">{cleanText(p.properties.name)}</span>
-              </div>
-            )}
-          </Marker>
-        );
-      })}
+      <Source id="overlap-lines" type="geojson" data={overlapLines}>
+        <Layer
+          id="overlap-lines-casing"
+          type="line"
+          layout={{ "line-cap": "round" }}
+          paint={{
+            "line-color": colors["--surface"],
+            "line-width": ["case", ["get", "selected"], 11, 6],
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-opacity": pairOpacity(hasSelection ? 0.4 : 0.9) as any,
+          }}
+        />
+        <Layer
+          id="overlap-lines"
+          type="line"
+          layout={{ "line-cap": "round" }}
+          paint={{
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-color": tierColor as any,
+            "line-width": ["case", ["get", "selected"], 7, 3],
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-opacity": pairOpacity(hasSelection ? 0.35 : 0.9) as any,
+          }}
+        />
+        {/* Wide invisible line so thin lines are easy to click. */}
+        <Layer
+          id="overlap-lines-hit"
+          type="line"
+          minzoom={useHex ? PAIRS_ZOOM - 0.4 : 0}
+          paint={{ "line-color": colors["--text"], "line-width": 16, "line-opacity": 0 }}
+        />
+      </Source>
+
+      <Source id="project-markers" type="geojson" data={projectFeatures.markers}>
+        <Layer
+          id="project-markers"
+          type="symbol"
+          layout={{
+            "icon-image": ["concat", "seams-shape-", ["get", "type"]],
+            // Small when zoomed out on the big dataset; the few sample projects stay full size.
+            "icon-size": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              3,
+              ["case", ["==", ["get", "side"], -1], useHex ? 0.32 : 0.9, 1],
+              7,
+              ["case", ["==", ["get", "side"], -1], useHex ? 0.6 : 0.9, 1.1],
+              10,
+              ["case", ["==", ["get", "side"], -1], useHex ? 0.75 : 1, 1.2],
+            ],
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+            // Open pair on top, dimmed ones underneath.
+            "symbol-sort-key": ["case", ["!=", ["get", "side"], -1], 2, ["get", "dimmed"], 0, 1],
+          }}
+          paint={{
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "icon-color": projectColor as any,
+            "icon-halo-color": colors["--surface"],
+            "icon-halo-width": 1.5,
+            "icon-opacity": ["case", ["get", "dimmed"], 0.3, 1],
+          }}
+        />
+      </Source>
+
+      {/* Labels for the two projects in the open pair. Only two, so plain DOM markers are fine. */}
+      {selected &&
+        projects
+          .filter((p) => sideOf[p.properties.id] !== undefined)
+          .map((p) => {
+            const side = sideOf[p.properties.id];
+            const [lng, lat] = markerPoint(p);
+            return (
+              <Marker key={p.properties.id} longitude={lng} latitude={lat} anchor={side === 0 ? "bottom" : "top"} style={{ zIndex: 2 }}>
+                <div
+                  className={`pointer-events-none max-w-56 rounded-md ${side === 0 ? "mb-3" : "mt-3"} border border-line bg-surface px-2 py-1 text-[11px] leading-tight text-text shadow-md`}
+                  style={{ width: "max-content" }}
+                >
+                  <span className="font-semibold" style={{ color: sideVar(side) }}>
+                    {p.properties.utility}
+                  </span>{" "}
+                  <span className="line-clamp-2">{cleanText(p.properties.name)}</span>
+                </div>
+              </Marker>
+            );
+          })}
     </Map>
+  );
+}
+
+// Hexagons shade by how many overlaps fall inside: one hue, darker means more. The edge takes the most
+// severe tier inside, so a hexagon with a touching pair stands out.
+function HexLayers({
+  id,
+  source,
+  minzoom,
+  maxzoom,
+  colors,
+  fade,
+  hidden,
+}: {
+  id: string;
+  // Layers inside a wrapper component do not get the source from <Source>, so pass it in.
+  source: string;
+  minzoom?: number;
+  maxzoom?: number;
+  colors: NonNullable<ReturnType<typeof useThemeColors>>;
+  fade(full: unknown): unknown;
+  hidden: boolean;
+}) {
+  const zoom = { ...(minzoom !== undefined && { minzoom }), ...(maxzoom !== undefined && { maxzoom }) };
+  return (
+    <>
+      <Layer
+        id={`hex-fill-${id}`}
+        source={source}
+        type="fill"
+        {...zoom}
+        layout={{ visibility: hidden ? "none" : "visible" }}
+        paint={{
+          "fill-color": colors["--accent"],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "fill-opacity": fade(["interpolate", ["linear"], ["get", "share"], 0, 0.14, 1, 0.72]) as any,
+        }}
+      />
+      <Layer
+        id={`hex-edge-${id}`}
+        source={source}
+        type="line"
+        {...zoom}
+        layout={{ visibility: hidden ? "none" : "visible" }}
+        paint={{
+          "line-color": ["match", ["get", "tier"], 1, colors["--tier-1"], 2, colors["--tier-2"], colors["--surface"]],
+          "line-width": ["match", ["get", "tier"], 1, 2, 2, 1.5, 1],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          "line-opacity": fade(0.9) as any,
+        }}
+      />
+    </>
   );
 }
 
@@ -243,7 +430,7 @@ function markerPoint(p: Project): LngLat {
   return c[Math.floor(c.length / 2)];
 }
 
-// Shape by project type, colour by utility (via currentColor).
+// Shape by project type, colour by utility (via currentColor). Used by the legend.
 export function MarkerShape({ type, size = 16 }: { type: ProjectType; size?: number }) {
   const common = { fill: "currentColor", stroke: "var(--surface)", strokeWidth: 2 };
   return (

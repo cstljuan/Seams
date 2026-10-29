@@ -1,10 +1,15 @@
 import type { Overlap, Project } from "@/lib/data";
 import { TIER_LABELS, accuracy, cleanText, formatDate, formatKm, formatUsd } from "./overlaps";
 
-// Plain words for the schedule relationship. The engine only has in-service dates,
-// so "within a year" is about in-service dates, not proven overlapping construction.
-export function scheduleText(o: Overlap): string {
+// Plain words for the schedule relationship. When both projects have start dates the engine compares
+// the build windows. Otherwise "within a year" is about in-service dates, not proven overlapping construction.
+export function scheduleText(o: Overlap, pair?: [Project, Project]): string {
   const years = (o.time_gap_days / 365).toFixed(1);
+  if (pair?.every((p) => p.properties.start)) {
+    return o.time_overlap
+      ? `The build windows overlap. In-service dates are ${o.time_gap_days} days apart.`
+      : `The build windows do not overlap. In-service dates are ${o.time_gap_days} days apart (about ${years} years).`;
+  }
   return o.time_overlap
     ? `In-service dates are ${o.time_gap_days} days apart (within a year). Build schedules may overlap; construction start dates are not in the data.`
     : `In-service dates are ${o.time_gap_days} days apart (about ${years} years). Nearby, but not a schedule match.`;
@@ -16,7 +21,9 @@ export function buildBrief(o: Overlap, pair: [Project, Project], generatedAt = n
   const lines = [
     `# Seams coordination brief: overlap #${o.rank}`,
     ``,
-    `Generated ${generatedAt.toISOString().slice(0, 10)} from the Seams sample data. Draft for human review. Nothing has been sent to either utility.`,
+    `Generated ${generatedAt.toISOString().slice(0, 10)} from the Seams ${
+      pair.some((p) => p.properties.synthetic) ? "illustrative dataset (made-up plans, not real utility projects)" : "sample data"
+    }. Draft for human review. Nothing has been sent to either utility.`,
     ``,
     `## Projects`,
     ...pair.map(
@@ -27,8 +34,14 @@ export function buildBrief(o: Overlap, pair: [Project, Project], generatedAt = n
     `## Relationship`,
     `- Closest distance: ${formatKm(o.distance_km)}${o.approximate ? " (approximate)" : ""}`,
     `- Tier ${o.tier}: ${TIER_LABELS[o.tier]}`,
-    `- Schedule: ${scheduleText(o)}`,
-    `- Location accuracy: ${acc}${acc === "Centroid" ? " (at least one side is an approximate point, not a surveyed line)" : ""}`,
+    `- Schedule: ${scheduleText(o, pair)}`,
+    `- Location accuracy: ${acc}${
+      acc === "Centroid"
+        ? " (at least one side is an approximate point, not a surveyed line)"
+        : acc === "Illustrative"
+          ? " (illustrative dataset: made-up plans placed on real towns, not real utility projects)"
+          : ""
+    }`,
     ``,
     `## Cost of not coordinating (model estimate)`,
     o.cost

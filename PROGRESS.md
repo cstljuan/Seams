@@ -26,6 +26,11 @@ Update your row when you start (in progress) and finish (done, with PR link).
 | 20 | Arc colour picker: any colour (colour wheel), next to Arc on the map (not on the loading screen) | Brent | done | | |
 | 21 | Light/dark toggle in the sidebar header (saved per browser) | Brent | done | | |
 | 22 | Arc accessories (hard hat, headlamp, party hat), picked next to Arc on the map | Brent | done | | |
+| 23 | Data contract v2 (many utilities), illustrative US dataset, dataset toggle, GPU map with hexagons, list paging, sidebar split | Juan (Opus session) | done on `cstljuan/data-v2` | | |
+| 24 | Settings page for Arc, theme, motion, units; remove dotted loading background | Juan (session A) | todo | | |
+| 25 | Phone layout: bottom sheet | Juan (session B) | todo | 23 | |
+| 26 | Sort, group, timeline, time scrubber, savings counter, utility spotlight | Juan (session C) | todo | 23 | |
+| 27 | Deep links, command palette, plan export, Arc narration and easter eggs | Juan (session D) | todo | 23 | |
 
 ## Checkpoints (tonight)
 - 20:00 deployed app shows the 10 sample projects and 6 overlaps, ranked

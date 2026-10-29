@@ -15,7 +15,7 @@ interface Props {
 const SIZE = 150;
 // Long enough for one full eye orbit, so a fast load still reads as a moment, not a flash.
 const MIN_SHOW_MS = 1_400;
-const STEPS = ["Loading GPC and DESC projects", "Loading ranked overlaps", "Drawing the map"];
+const STEPS = ["Loading planned projects", "Loading ranked overlaps", "Drawing the map"];
 
 // Arc's idle pose as a plain path, shown until the animated Arc is ready (and if it never loads).
 // Same shape as the "SVG right" export in Arc Lab.

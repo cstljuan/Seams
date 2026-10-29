@@ -1,0 +1,267 @@
+[
+  {
+    "code": "DESC",
+    "name": "Dominion Energy South Carolina",
+    "states": [
+      "SC"
+    ],
+    "fictional": false
+  },
+  {
+    "code": "GPC",
+    "name": "Georgia Power",
+    "states": [
+      "GA"
+    ],
+    "fictional": false
+  },
+  {
+    "code": "WST",
+    "name": "Westspan Transmission",
+    "states": [
+      "WA",
+      "OR",
+      "ID",
+      "CA",
+      "NV",
+      "AZ",
+      "UT"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "RKT",
+    "name": "Rockline Transmission",
+    "states": [
+      "MT",
+      "WY",
+      "CO",
+      "NM",
+      "UT",
+      "ND",
+      "SD",
+      "NE",
+      "KS"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "MIP",
+    "name": "Midline Interstate Power",
+    "states": [
+      "TX",
+      "OK",
+      "KS",
+      "MO",
+      "AR",
+      "LA",
+      "IA",
+      "MN"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "IST",
+    "name": "Inland Seas Transmission",
+    "states": [
+      "IL",
+      "IN",
+      "OH",
+      "MI",
+      "WI",
+      "MN",
+      "PA"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "SBT",
+    "name": "Seaboard Span Transmission",
+    "states": [
+      "NY",
+      "NJ",
+      "PA",
+      "MD",
+      "DE",
+      "VA",
+      "NC",
+      "MA",
+      "CT",
+      "RI",
+      "NH",
+      "VT",
+      "ME"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "SXT",
+    "name": "Southern Crossing Transmission",
+    "states": [
+      "FL",
+      "AL",
+      "MS",
+      "TN",
+      "KY",
+      "GA",
+      "SC",
+      "NC"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "CDL",
+    "name": "Cedarline Power",
+    "states": [
+      "WA",
+      "OR",
+      "ID"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "RBE",
+    "name": "Redwood Basin Electric",
+    "states": [
+      "CA"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "PVP",
+    "name": "Paloma Valley Power",
+    "states": [
+      "CA"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "RME",
+    "name": "Redmesa Energy",
+    "states": [
+      "AZ",
+      "NM",
+      "NV",
+      "UT"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "HPE",
+    "name": "Highpass Electric Cooperative",
+    "states": [
+      "CO",
+      "WY",
+      "MT"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "LMP",
+    "name": "Lone Mesquite Power",
+    "states": [
+      "TX"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "SWP",
+    "name": "Switchgrass Power Cooperative",
+    "states": [
+      "KS",
+      "NE",
+      "OK",
+      "ND",
+      "SD",
+      "IA"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "NWD",
+    "name": "Northwood Electric",
+    "states": [
+      "MN",
+      "WI"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "LSG",
+    "name": "Lakeshore Grid",
+    "states": [
+      "MI",
+      "OH",
+      "IN",
+      "IL"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "RPA",
+    "name": "Riverbend Power Authority",
+    "states": [
+      "TN",
+      "KY",
+      "AR",
+      "MS",
+      "AL",
+      "LA",
+      "MO"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "MGV",
+    "name": "Mangrove Electric",
+    "states": [
+      "FL"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "LLF",
+    "name": "Longleaf Power",
+    "states": [
+      "NC",
+      "VA",
+      "SC",
+      "GA"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "IBE",
+    "name": "Ironbridge Electric",
+    "states": [
+      "NY",
+      "NJ",
+      "PA"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "GCP",
+    "name": "Granite Coast Power",
+    "states": [
+      "MA",
+      "CT",
+      "RI",
+      "NH",
+      "VT",
+      "ME"
+    ],
+    "fictional": true
+  },
+  {
+    "code": "LHE",
+    "name": "Laurel Highlands Electric",
+    "states": [
+      "MD",
+      "DE",
+      "WV",
+      "VA"
+    ],
+    "fictional": true
+  }
+]

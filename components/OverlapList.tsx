@@ -14,7 +14,7 @@ import {
   formatUsd,
   sides,
   sources,
-  utilityVar,
+  sideVar,
   type ProjectIndex,
 } from "./overlaps";
 
@@ -50,7 +50,7 @@ export default function OverlapList({ overlaps, index, selectedId, onSelect }: P
       {overlaps.map((o, i) => {
         const pair = sides(o, index);
         const open = o.id === selectedId;
-        const [gpc, desc] = pair ?? [];
+        const [first, second] = pair ?? [];
         return (
           <li
             key={o.id}
@@ -74,11 +74,11 @@ export default function OverlapList({ overlaps, index, selectedId, onSelect }: P
                 <span className="flex items-center gap-2">
                   <span className="font-mono text-xs text-muted">#{o.rank}</span>
                   <span className="text-sm font-semibold">
-                    <span style={{ color: utilityVar("GPC") }}>GPC</span>
+                    <span style={{ color: sideVar(0) }}>{first?.properties.utility ?? "?"}</span>
                     <span className="text-muted" aria-label="to">
                       {" → "}
                     </span>
-                    <span style={{ color: utilityVar("DESC") }}>DESC</span>
+                    <span style={{ color: sideVar(1) }}>{second?.properties.utility ?? "?"}</span>
                   </span>
                   <span className="ml-auto flex shrink-0 items-center gap-1.5 text-muted">
                     <span className="font-mono text-xs text-text">
@@ -91,11 +91,11 @@ export default function OverlapList({ overlaps, index, selectedId, onSelect }: P
                     </span>
                   </span>
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-muted" title={gpc && cleanText(gpc.properties.name)}>
-                  {gpc ? cleanText(gpc.properties.name) : o.b}
+                <span className="mt-0.5 block truncate text-xs text-muted" title={first && cleanText(first.properties.name)}>
+                  {first ? cleanText(first.properties.name) : o.b}
                 </span>
-                <span className="block truncate text-xs text-muted" title={desc && cleanText(desc.properties.name)}>
-                  {desc ? cleanText(desc.properties.name) : o.a}
+                <span className="block truncate text-xs text-muted" title={second && cleanText(second.properties.name)}>
+                  {second ? cleanText(second.properties.name) : o.a}
                 </span>
               </span>
               <ChevronIcon
@@ -118,9 +118,9 @@ function Details({ overlap: o, pair }: { overlap: Overlap; pair: [Project, Proje
   const acc = accuracy(pair);
   return (
     <dl className="grid grid-cols-[7.5rem_1fr] gap-x-3 gap-y-2 border-t border-line px-4 py-3 text-xs">
-      {pair.map((p) => (
+      {pair.map((p, side) => (
         <Row key={p.properties.id} label={p.properties.utility}>
-          <span className="block font-medium" style={{ color: utilityVar(p.properties.utility) }}>
+          <span className="block font-medium" style={{ color: sideVar(side as 0 | 1) }}>
             {p.properties.utility_name}
           </span>
           <span className="block">{cleanText(p.properties.name)}</span>
@@ -145,7 +145,7 @@ function Details({ overlap: o, pair }: { overlap: Overlap; pair: [Project, Proje
         ) : (
           <span className="ml-1.5 text-muted">not a schedule match</span>
         )}
-        <span className="mt-0.5 block text-muted">{scheduleText(o)}</span>
+        <span className="mt-0.5 block text-muted">{scheduleText(o, pair)}</span>
       </Row>
       <Row label="In service">
         {pair.map((p) => (
@@ -158,7 +158,11 @@ function Details({ overlap: o, pair }: { overlap: Overlap; pair: [Project, Proje
       <Row label="Location accuracy">
         <span className="font-medium">{acc}</span>
         <span className="text-muted">
-          {acc === "Exact" ? " (both from real line geometry)" : " (at least one side is an approximate point)"}
+          {acc === "Exact"
+            ? " (both from real line geometry)"
+            : acc === "Illustrative"
+              ? " (made-up geometry in the illustrative dataset)"
+              : " (at least one side is an approximate point)"}
         </span>
       </Row>
       <Row label="Cost of not coordinating">

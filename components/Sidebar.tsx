@@ -33,6 +33,8 @@ interface Props {
   selectedId: string | null;
   onSelect(id: string | null): void;
   onRetry(): void;
+  // Set when the list only shows pairs in the map view; the button zooms back out.
+  inView?: { onShowAll(): void };
 }
 
 // Everything in the overlaps panel: header, dataset, search, filters and the ranked list.
@@ -52,6 +54,7 @@ export default function SidebarPanel({
   selectedId,
   onSelect: select,
   onRetry: retry,
+  inView,
 }: Props) {
   const data = load.status === "ready" ? load.data : null;
   const selected = visible.find((o) => o.id === selectedId) ?? null;
@@ -92,13 +95,20 @@ export default function SidebarPanel({
       <div className="flex min-h-0 flex-1 flex-col lg:min-w-[360px]">
         <div className="flex items-center justify-between px-4 pb-2 pt-3">
           <h2 className="text-sm font-semibold">
-            Ranked overlaps
+            {inView ? "In view" : "Ranked overlaps"}
             {data && (
               <span className="ml-1.5 font-mono font-normal text-muted" aria-live="polite">
-                {visible.length === data.overlaps.length ? visible.length : `${visible.length} of ${data.overlaps.length}`}
+                {visible.length === data.overlaps.length
+                  ? visible.length.toLocaleString("en-US")
+                  : `${visible.length.toLocaleString("en-US")} of ${data.overlaps.length.toLocaleString("en-US")}`}
               </span>
             )}
           </h2>
+          {inView && !hasFilters(filters) && (
+            <button type="button" onClick={inView.onShowAll} className="text-xs text-accent hover:underline">
+              Show all
+            </button>
+          )}
           {hasFilters(filters) && (
             <button type="button" onClick={() => changeFilters(EMPTY_FILTERS)} className="text-xs text-accent hover:underline">
               Clear filters

@@ -50,6 +50,8 @@ interface Props {
   padding?: { top: number; bottom: number; left: number; right: number };
   // Zoom buttons; phones pinch instead.
   showControls?: boolean;
+  // Called after the camera stops, so the list can follow what is on screen.
+  onViewChange?(view: MapViewState): void;
   onSelect(id: string | null): void;
   onProjectClick(projectId: string): void;
   onTileError?(): void;
@@ -59,6 +61,18 @@ interface Props {
 
 const INTERACTIVE = ["overlap-lines-hit", "project-markers", "project-lines-hit"];
 const INTERACTIVE_3D = [...INTERACTIVE, "ribbons-coarse", "ribbons-fine"];
+
+// Zoomed in this far with nothing open, the seams nearest the middle of the screen light up and the rest dim.
+const FOCUS_ZOOM = 7.5;
+// Share of the shorter screen side, as a radius around the centre, and the most seams to light at once.
+const FOCUS_RADIUS = 0.34;
+const FOCUS_MAX = 16;
+
+export interface MapViewState {
+  // [west, south, east, north]
+  bounds: [number, number, number, number];
+  zoom: number;
+}
 
 // 3D views: the camera tilt, and how tall the full height is at each zoom (metres), so ribbons stay
 // in proportion from the whole country down to one town.
@@ -98,6 +112,7 @@ export default function MapView({
   yearCursor,
   padding = FIT_PADDING,
   showControls = true,
+  onViewChange,
   onSelect,
   onProjectClick,
   onTileError,
@@ -238,6 +253,62 @@ export default function MapView({
     [is3d, selected, levels, years],
   );
 
+  // Focus: which seams (and their projects) sit nearest the middle of the screen. Kept as feature state,
+  // so moving the camera never rebuilds the map data.
+  const [focusOn, setFocusOn] = useState(false);
+  const focused = useRef<{ overlaps: Set<string>; projects: Set<string> }>({ overlaps: new Set(), projects: new Set() });
+  const viewCb = useRef(onViewChange);
+  useEffect(() => {
+    viewCb.current = onViewChange;
+  });
+  const updateFocus = useCallback(() => {
+    const m = map.current?.getMap();
+    if (!m || !m.isStyleLoaded()) return;
+    const b = m.getBounds();
+    viewCb.current?.({ bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], zoom: m.getZoom() });
+
+    const next = { overlaps: new Set<string>(), projects: new Set<string>() };
+    if (m.getZoom() >= FOCUS_ZOOM && !selectedId) {
+      const canvas = m.getCanvas();
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      const radius = Math.min(w, h) * FOCUS_RADIUS;
+      const near: { id: string; a: string; b: string; d: number }[] = [];
+      for (const o of overlaps) {
+        const lng = (o.closest_points[0][0] + o.closest_points[1][0]) / 2;
+        const lat = (o.closest_points[0][1] + o.closest_points[1][1]) / 2;
+        if (!b.contains([lng, lat])) continue;
+        const pt = m.project([lng, lat]);
+        const d = Math.hypot(pt.x - w / 2, pt.y - h / 2);
+        if (d <= radius) near.push({ id: o.id, a: o.a, b: o.b, d });
+      }
+      near.sort((x, y) => x.d - y.d);
+      for (const n of near.slice(0, FOCUS_MAX)) {
+        next.overlaps.add(n.id);
+        next.projects.add(n.a);
+        next.projects.add(n.b);
+      }
+    }
+    // Only touch what changed.
+    const swap = (source: string, before: Set<string>, after: Set<string>) => {
+      if (!m.getSource(source)) return;
+      for (const id of before) if (!after.has(id)) m.setFeatureState({ source, id }, { focus: false });
+      for (const id of after) if (!before.has(id)) m.setFeatureState({ source, id }, { focus: true });
+    };
+    swap("overlap-lines", focused.current.overlaps, next.overlaps);
+    swap("project-lines", focused.current.projects, next.projects);
+    swap("project-markers", focused.current.projects, next.projects);
+    focused.current = next;
+    setFocusOn(next.overlaps.size > 0);
+  }, [overlaps, selectedId]);
+
+  // Data changes reset feature state, so start the focus fresh.
+  useEffect(() => {
+    focused.current = { overlaps: new Set(), projects: new Set() };
+    const t = setTimeout(updateFocus, 50);
+    return () => clearTimeout(t);
+  }, [updateFocus, projectFeatures, overlapLines]);
+
   if (!colors) return <div className="h-full w-full bg-bg" />;
 
   // Per-feature state as expressions: which side of the open pair a project is on (-1 for neither),
@@ -246,6 +317,7 @@ export default function MapView({
   const SIDE = (sideIds.length ? ["match", ["get", "id"], ...sideIds.flatMap(([id, side]) => [id, side]), -1] : ["number", -1]) as ExpressionSpecification;
   const DIMMED = (hasSelection ? ["==", SIDE, -1] : ["get", "dimmed"]) as ExpressionSpecification;
   const SELECTED: ExpressionSpecification = ["==", ["get", "id"], selectedId ?? ""];
+  const FOCUSED: ExpressionSpecification = ["boolean", ["feature-state", "focus"], false];
 
   const tierColor = ["match", ["get", "tier"], 1, colors["--tier-1"], 2, colors["--tier-2"], 3, colors["--tier-3"], colors["--tier-4"]];
   // Sides of the open pair first, then by utility (sample) or one shared colour (many utilities).
@@ -256,7 +328,11 @@ export default function MapView({
     colors["--utility-b"],
     1,
     colors["--utility-a"],
-    colorByUtility ? ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]] : colors["--muted"],
+    colorByUtility
+      ? ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]]
+      : focusOn
+        ? ["case", FOCUSED, colors["--utility-a"], colors["--muted"]]
+        : colors["--muted"],
   ];
   // Ribbons: the open pair's sides in their colours, everything else in the normal project colour, dimmed ones muted.
   // 3D ribbons keep the Seams colours: the open pair's sides in their colours, everything else in the
@@ -267,8 +343,14 @@ export default function MapView({
   // With a pair open, 3D shows only that pair, so it reads cleanly.
   const ONLY_PAIR = (hasSelection ? ["!=", SIDE, -1] : true) as ExpressionSpecification;
   // Seams fade to almost nothing until both projects exist at the year bar's year.
-  const pairCase = (others: number) =>
-    ["case", SELECTED, 1, ...(yearCursor === null ? [] : [[">", ["get", "year"], yearCursor], 0.06]), others];
+  const pairCase = (others: number) => [
+    "case",
+    SELECTED,
+    1,
+    ...(focusOn ? [FOCUSED, 1] : []),
+    ...(yearCursor === null ? [] : [[">", ["get", "year"], yearCursor], 0.06]),
+    focusOn ? 0.1 : others,
+  ];
   // Zoomed out on the big dataset, only the tier 1 and 2 seams show; the rest fade in from zoom 5 to 6.5.
   const pairOpacity = (others: number) =>
     big
@@ -285,6 +367,7 @@ export default function MapView({
         onReady?.();
       }}
       onStyleData={addShapes}
+      onMoveEnd={updateFocus}
       onError={(e) => {
         // Tile or style failures: tell the app once so the list can carry on alone.
         if (tileErrorSent.current) return;
@@ -312,7 +395,7 @@ export default function MapView({
     >
       {showControls && <NavigationControl position="top-right" showCompass={is3d} visualizePitch />}
 
-      <Source id="project-lines" type="geojson" data={projectFeatures.lines}>
+      <Source id="project-lines" type="geojson" data={projectFeatures.lines} promoteId="id">
         <Layer
           id="project-lines"
           type="line"
@@ -326,14 +409,16 @@ export default function MapView({
             "line-opacity": (is3d
               ? ["case", ["==", SIDE, -1], hasSelection ? 0 : 0.22, 0.6]
               : big
-                ? ["interpolate", ["linear"], ["zoom"], 4, ["case", DIMMED, 0.08, ["==", SIDE, -1], 0.22, 1], 7, ["case", DIMMED, 0.15, ["==", SIDE, -1], 0.6, 1]]
+                ? focusOn
+                  ? ["case", FOCUSED, 1, ["==", SIDE, -1], 0.1, 1]
+                  : ["interpolate", ["linear"], ["zoom"], 4, ["case", DIMMED, 0.08, ["==", SIDE, -1], 0.22, 1], 7, ["case", DIMMED, 0.15, ["==", SIDE, -1], 0.6, 1]]
                 : ["case", DIMMED, 0.18, ["==", SIDE, -1], 0.9, 1]) as ExpressionSpecification,
           }}
         />
         <Layer id="project-lines-hit" type="line" paint={{ "line-color": colors["--text"], "line-width": 10, "line-opacity": 0 }} />
       </Source>
 
-      <Source id="overlap-lines" type="geojson" data={overlapLines}>
+      <Source id="overlap-lines" type="geojson" data={overlapLines} promoteId="id">
         <Layer
           id="overlap-lines-casing"
           type="line"
@@ -353,7 +438,7 @@ export default function MapView({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-color": tierColor as any,
             // Thinner when zoomed out on the big dataset, so 1,500 seams stay readable.
-            "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", SELECTED, 6, big ? 1.5 : 3], 7, ["case", SELECTED, 7, 3]],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", SELECTED, 6, big ? 1.5 : 3], 7, ["case", SELECTED, 7, FOCUSED, 4.5, 3]],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-opacity": pairOpacity(hasSelection ? (is3d ? 0.04 : 0.15) : 0.9) as any,
           }}
@@ -387,7 +472,7 @@ export default function MapView({
         </>
       )}
 
-      <Source id="project-markers" type="geojson" data={projectFeatures.markers}>
+      <Source id="project-markers" type="geojson" data={projectFeatures.markers} promoteId="id">
         <Layer
           id="project-markers"
           type="symbol"
@@ -416,7 +501,12 @@ export default function MapView({
             "icon-halo-color": colors["--surface"],
             "icon-halo-width": 1.5,
             // In 3D the ribbons carry the projects; the markers stay on the ground as faint shadows.
-            "icon-opacity": ["case", ["==", SIDE, -1], is3d ? (hasSelection ? 0 : 0.35) : ["case", DIMMED, hasSelection ? 0.12 : 0.3, 1], 1],
+            "icon-opacity": [
+              "case",
+              ["==", SIDE, -1],
+              is3d ? (hasSelection ? 0 : 0.35) : focusOn ? ["case", FOCUSED, 1, 0.15] : ["case", DIMMED, hasSelection ? 0.12 : 0.3, 1],
+              1,
+            ],
           }}
         />
       </Source>

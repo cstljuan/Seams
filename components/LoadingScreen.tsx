@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Mascot, { type MascotHandle } from "./Mascot";
+import { prefersReducedMotion } from "./settings";
 
 interface Props {
   // "ready" once the data and the map are in; "error" if the data failed.
@@ -47,7 +48,7 @@ export default function LoadingScreen({ phase, overlapCount, target, onGone }: P
 
   useEffect(() => {
     if (phase === "loading") return;
-    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduced = prefersReducedMotion();
     const wait = Math.max(0, MIN_SHOW_MS - (performance.now() - shownAt.current));
     const timers: ReturnType<typeof setTimeout>[] = [];
     const later = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
@@ -88,10 +89,6 @@ export default function LoadingScreen({ phase, overlapCount, target, onGone }: P
       <div
         aria-hidden
         className={`absolute inset-0 bg-bg transition-opacity duration-500 ease-out ${leaving ? "opacity-0" : "opacity-100"}`}
-        style={{
-          backgroundImage: "radial-gradient(color-mix(in srgb, var(--text) 10%, transparent) 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
       />
 
       <div className="relative flex flex-col items-center">

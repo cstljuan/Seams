@@ -7,7 +7,7 @@ interface Props {
   disabled?: boolean;
 }
 
-// Sits next to Arc in the map corner, beside the colour picker. The choice is saved in the browser.
+// A plain accessory select. The settings page shows richer choices; this stays for small spaces.
 export default function ArcAccessoryPicker({ disabled }: Props) {
   const accessory = useSyncExternalStore(arcAccessory.subscribe, arcAccessory.get, () => null);
 

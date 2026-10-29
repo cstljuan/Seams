@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 
 // Runs before paint so the page never flashes the wrong theme or Arc colour.
 // Uses the saved choice, else the device setting (and follows it while nothing is saved).
-// Arc's colour is picked in the map corner (components/ArcColorPicker.tsx).
-const themeScript = `(function(){var m=matchMedia("(prefers-color-scheme: dark)");function s(){var t;try{t=localStorage.getItem("seams-theme")}catch(e){}document.documentElement.dataset.theme=t==="dark"||t==="light"?t:m.matches?"dark":"light"}s();m.addEventListener("change",s);try{var c=localStorage.getItem("seams.arc-color");if(c&&/^#[0-9a-f]{6}$/i.test(c))document.documentElement.style.setProperty("--arc",c)}catch(e){}})()`;
+// Arc's colour and reduced motion are picked on /settings (components/settings.ts, components/ArcColorPicker.tsx).
+const themeScript = `(function(){var m=matchMedia("(prefers-color-scheme: dark)");function s(){var t;try{t=localStorage.getItem("seams-theme")}catch(e){}document.documentElement.dataset.theme=t==="dark"||t==="light"?t:m.matches?"dark":"light"}s();m.addEventListener("change",s);try{var c=localStorage.getItem("seams.arc-color");if(c&&/^#[0-9a-f]{6}$/i.test(c))document.documentElement.style.setProperty("--arc",c);if(localStorage.getItem("seams.motion")==="reduce")document.documentElement.dataset.motion="reduce"}catch(e){}})()`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

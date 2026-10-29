@@ -50,8 +50,8 @@ Reactions to wire in the app:
 - nothing matches the filters: `confused`
 - idle for 60 s: `sleep`
 Keep calls to `play(name)` so the art can be updated without touching the app.
-- Colour: people can pick any colour for Arc with the browser's colour picker (the system colour wheel on a Mac). It sits next to Arc in the map corner (not on the loading screen), with a Reset back to gold. The choice is saved in the browser (`seams.arc-color`) and applies everywhere Arc shows. The default lives in `app/theme.css` as `--arc-brand`. The logo mark stays gold.
-- Accessories: Arc can wear a hard hat, a headlamp or a party hat, picked next to the colour wheel in the map corner. Saved in the browser (`seams.arc-accessory`) and shown everywhere Arc shows, including the loading screen. The drawings live in `components/arcAccessories.ts` and are added to Arc's moving group (`g.all` in `arc-mascot.js`), so they follow every pose. Their colours are the `--arc-hat`, `--arc-gear`, `--arc-lamp` and `--arc-party` tokens in `app/theme.css`.
+- Colour: people can pick any colour for Arc on the settings page (`/settings`): theme-colour swatches or the browser's colour picker (the system colour wheel on a Mac), with Back to gold. The map corner shows a "Customize Arc" link there. The choice is saved in the browser (`seams.arc-color`) and applies everywhere Arc shows. The default lives in `app/theme.css` as `--arc-brand`. The logo mark stays gold.
+- Accessories: Arc can wear a hard hat, a headlamp or a party hat, picked on the settings page. Saved in the browser (`seams.arc-accessory`) and shown everywhere Arc shows, including the loading screen. The drawings live in `components/arcAccessories.ts` and are added to Arc's moving group (`g.all` in `arc-mascot.js`), so they follow every pose. Their colours are the `--arc-hat`, `--arc-gear`, `--arc-lamp` and `--arc-party` tokens in `app/theme.css`.
 
 ## Desktop shell (2026-09-27)
 - Header: merged logo (`public/brand/logo-full-light.svg` / `logo-full-dark.svg`), tagline, a light/dark toggle, and a Menu (Explore overlaps, How it works, Data and methodology, Reset demo). Favicon is `app/icon.svg` (the Arc mark).
@@ -73,9 +73,15 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - Two datasets, picked at the top of the panel: **Illustrative** (default, about 800 made-up projects from 23 utilities on real US towns) and **Sperry sample** (the 10 real projects). Saved in the browser as `seams.dataset` (`lib/dataset.ts`).
 - The illustrative dataset is always labelled: "Illustrative data" chip under the toggle, a line in the legend, the Data and methodology drawer, and coordination briefs. Accuracy shows "Illustrative".
 - Projects draw on the GPU (MapLibre symbol layers with SDF shapes from `components/mapShapes.ts`), same shapes as before. With two utilities they keep the DESC/GPC colours. With many, every project is `--muted` and only the two sides of the open pair get `--utility-b` (first) and `--utility-a` (second), matching the list.
-- With 150 or more overlaps, the zoomed-out map shows hexagons (`components/hexbins.ts`): one hue (`--accent`), darker means more pairs, a red or orange edge means a tier 1 or 2 pair is inside. Click a hexagon to zoom in. Pairs fade in from zoom 5 to 5.8 as hexagons fade out. These encode data, they are not decoration.
+- No aggregation shapes: the zoomed-out map shows every project and every seam line, thinner and smaller on the big dataset (Juan, 2026-10-29: hexagons and light columns are out).
 - The list shows 100 rows at a time with "Show more".
 - The panel content lives in `components/Sidebar.tsx`, so the desktop sidebar and a phone sheet can both render it.
+
+## Settings page (2026-10-29)
+- `/settings`, from the Menu or the "Customize Arc" link. Live Arc preview with reaction buttons, then cards: Arc's colour, Arc's accessory, Theme (Device, Light, Dark), Distances (km or miles), Motion (Follow device or Reduce), Data the map opens with.
+- Keys: `seams.arc-color`, `seams.arc-accessory`, `seams-theme` (removed for Device), `seams.units`, `seams.motion`, `seams.dataset`. All in `components/settings.ts`, `components/ArcColorPicker.tsx`, `components/arcAccessories.ts`, `lib/dataset.ts`.
+- Reduce motion sets `data-motion="reduce"` on `<html>` before paint and cuts CSS animation; `prefersReducedMotion()` covers the JS animation.
+- No decorative dot grid on the loading screen any more.
 
 ## Rules
 - Never show a cost as one exact number; show a range.

@@ -10,13 +10,13 @@ const HEX = /^#[0-9a-f]{6}$/i;
 
 // Point --arc at the chosen colour, so every Arc in the app (and the loading bar) follows.
 // app/layout.tsx does the same before paint, so the loading screen starts in the right colour.
-function apply(color: string | null) {
+export function applyArcColor(color: string | null) {
   const root = document.documentElement.style;
   if (color) root.setProperty("--arc", color);
   else root.removeProperty("--arc");
 }
 
-const arcColor = savedChoice(STORAGE_KEY, (value) => HEX.test(value));
+export const arcColor = savedChoice(STORAGE_KEY, (value) => HEX.test(value));
 
 function brandColor() {
   return getComputedStyle(document.documentElement).getPropertyValue("--arc-brand").trim().toLowerCase();
@@ -27,11 +27,11 @@ interface Props {
   disabled?: boolean;
 }
 
-// Sits next to Arc in the map corner.
+// The colour wheel, used on the settings page.
 export default function ArcColorPicker({ disabled }: Props) {
   const color = useSyncExternalStore(arcColor.subscribe, arcColor.get, () => null);
   const brand = useSyncExternalStore(noSubscribe, brandColor, () => null);
-  useEffect(() => apply(color), [color]);
+  useEffect(() => applyArcColor(color), [color]);
 
   const custom = color !== null;
 

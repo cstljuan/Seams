@@ -17,6 +17,7 @@ import YearBar from "./YearBar";
 import ScopePicker, { stateName } from "./ScopePicker";
 import BottomSheet, { PEEK_PX, type SheetStop } from "./BottomSheet";
 import { useIsPhone } from "./useIsPhone";
+import { involves } from "./explore";
 import LoadingScreen from "./LoadingScreen";
 import type { MapHandle, MapViewState } from "./MapView";
 import type { MascotReaction } from "./Mascot";
@@ -61,6 +62,10 @@ export default function SeamsApp() {
   const dataset = (useSyncExternalStore(datasetChoice.subscribe, datasetChoice.get, () => null) ?? DEFAULT_DATASET) as Dataset;
   const view = (useSyncExternalStore(mapViewChoice.subscribe, mapViewChoice.get, () => null) ?? "flat") as MapView3D;
   const [yearCursor, setYearCursor] = useState<number | null>(null);
+  // The year bar: always in 3D time, on demand in the other views.
+  const [yearsOpen, setYearsOpen] = useState(false);
+  const showYears = view === "time" || yearsOpen;
+  const activeYear = showYears ? yearCursor : null;
   const loadToken = useRef(0);
   // Set when the user switches datasets, so Arc says what changed once the new data is in.
   const announceSwitch = useRef(false);
@@ -68,6 +73,8 @@ export default function SeamsApp() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Scope: one state, or "" for the whole country.
   const [scope, setScope] = useState("");
+  // Spotlight: one utility, or "" for all.
+  const [spotlight, setSpotlight] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [info, setInfo] = useState<InfoTopic | null>(null);
   const [tilesFailed, setTilesFailed] = useState(false);
@@ -120,6 +127,7 @@ export default function SeamsApp() {
     announceSwitch.current = true;
     setSelectedId(null);
     setScope("");
+    setSpotlight("");
     setLoad({ status: "loading" });
     datasetChoice.set(next);
   }, []);
@@ -145,34 +153,47 @@ export default function SeamsApp() {
     [scope, index],
   );
   const visible = useMemo(
-    () => (data ? filterOverlaps(data.overlaps, index, filters).filter(inScope) : []),
-    [data, index, filters, inScope],
+    () => (data ? filterOverlaps(data.overlaps, index, filters).filter((o) => inScope(o) && (!spotlight || involves(o, spotlight, index))) : []),
+    [data, index, filters, inScope, spotlight],
   );
   // Zoomed in past this, the list shows only pairs whose seam is on screen, so it matches the map.
   const [mapView, setMapView] = useState<MapViewState | null>(null);
-  const listed = useMemo(() => {
-    if (!mapView || mapView.zoom < LIST_FOLLOW_ZOOM) return visible;
-    const [w, s, e, n] = mapView.bounds;
+  const byYear = useMemo(() => {
+    if (activeYear === null) return visible;
     return visible.filter((o) => {
+      const ya = Number(index.get(o.a)?.properties.in_service.slice(0, 4));
+      const yb = Number(index.get(o.b)?.properties.in_service.slice(0, 4));
+      return Math.max(ya, yb) <= activeYear || o.id === selectedId;
+    });
+  }, [visible, activeYear, index, selectedId]);
+  const listed = useMemo(() => {
+    if (!mapView || mapView.zoom < LIST_FOLLOW_ZOOM) return byYear;
+    const [w, s, e, n] = mapView.bounds;
+    return byYear.filter((o) => {
       if (o.id === selectedId) return true;
       const lng = (o.closest_points[0][0] + o.closest_points[1][0]) / 2;
       const lat = (o.closest_points[0][1] + o.closest_points[1][1]) / 2;
       return lng >= w && lng <= e && lat >= s && lat <= n;
     });
-  }, [visible, mapView, selectedId]);
+  }, [byYear, mapView, selectedId]);
   const listFollows = !!mapView && mapView.zoom >= LIST_FOLLOW_ZOOM;
 
   // The map draws in-scope projects plus the partners they pair with across the state line.
   const mapProjects = useMemo(() => {
     if (!data) return [];
-    if (!scope) return data.projects;
-    const keep = new Set(data.projects.filter((p) => p.properties.state === scope).map((p) => p.properties.id));
+    if (!scope && !spotlight) return data.projects;
+    // Scope keeps the state's projects; spotlight keeps the utility's. Plus every partner they pair with.
+    const keep = new Set(
+      data.projects
+        .filter((p) => (!scope || p.properties.state === scope) && (!spotlight || p.properties.utility === spotlight))
+        .map((p) => p.properties.id),
+    );
     for (const o of visible) {
       keep.add(o.a);
       keep.add(o.b);
     }
     return data.projects.filter((p) => keep.has(p.properties.id));
-  }, [data, scope, visible]);
+  }, [data, scope, spotlight, visible]);
   const selected = visible.find((o) => o.id === selectedId) ?? null;
 
   const dimmedProjectIds = useMemo(() => {
@@ -326,6 +347,7 @@ export default function SeamsApp() {
 
   const resetDemo = useCallback(() => {
     setScope("");
+    setSpotlight("");
     setFilters(EMPTY_FILTERS);
     setSelectedId(null);
     setInfo(null);
@@ -382,6 +404,14 @@ export default function SeamsApp() {
       selectedId={selected?.id ?? null}
       onSelect={select}
       onRetry={retry}
+      spotlight={spotlight}
+      onSpotlight={(u) => {
+        setSpotlight(u);
+        setSelectedId(null);
+        const name = data?.utilities.find((x) => x.code === u)?.name;
+        mascot.current?.say(u ? `Spotlight on ${name ?? u}. Only its pairs are showing.` : "Spotlight off. Every utility is back.", "found");
+      }}
+      utilities={data?.utilities ?? []}
     />
   );
 
@@ -402,7 +432,7 @@ export default function SeamsApp() {
           colorByUtility={(data?.utilities.length ?? 0) <= 2}
           utilities={data?.utilities ?? []}
           view={view}
-          yearCursor={view === "time" ? yearCursor : null}
+          yearCursor={activeYear}
           padding={mapPadding}
           showControls={!phone}
           onSelect={select}
@@ -410,6 +440,7 @@ export default function SeamsApp() {
           onTileError={() => setTilesFailed(true)}
           onReady={() => setMapReady(true)}
           onViewChange={setMapView}
+          spotlight={spotlight}
         />
 
         {load.status === "loading" && (
@@ -428,7 +459,7 @@ export default function SeamsApp() {
           </div>
         )}
 
-        {view === "time" && years && years[1] > years[0] && (!phone || sheet === "peek") && (
+        {showYears && years && years[1] > years[0] && (!phone || sheet === "peek") && (
           <div
             className={`pointer-events-none absolute z-10 flex justify-center ${phone ? "inset-x-3" : "bottom-[84px] left-28 right-3"}`}
             style={phone ? { bottom: aboveSheet } : undefined}
@@ -469,6 +500,11 @@ export default function SeamsApp() {
             years={years}
             utilityCount={data?.utilities.length ?? 0}
             compact={phone}
+            yearsOn={yearsOpen}
+            onYears={() => {
+              setYearsOpen((v) => !v);
+              setYearCursor(null);
+            }}
           />
         </div>
 
@@ -482,7 +518,7 @@ export default function SeamsApp() {
           <MapLegend types={projectTypes} utilities={data?.utilities ?? []} illustrative={dataset === "illustrative"} compact={phone} />
         </div>
 
-        <ArcCorner ref={mascot} tips={arcTips} hidden={booting} compact={phone} bottom={phone ? aboveSheet + (view === "time" && sheet === "peek" ? 76 : 0) : undefined} />
+        <ArcCorner ref={mascot} tips={arcTips} hidden={booting} compact={phone} bottom={phone ? aboveSheet + (showYears && sheet === "peek" ? 76 : 0) : undefined} />
 
         {!phone && (
           <button

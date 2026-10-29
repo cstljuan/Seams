@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
-import type { ExpressionSpecification, LightSpecification } from "maplibre-gl";
+import type { ExpressionSpecification } from "maplibre-gl";
 import Map, { Layer, Marker, NavigationControl, Source, type MapRef } from "react-map-gl/maplibre";
 import type { LngLat, Overlap, Project, ProjectType, UtilityInfo } from "@/lib/data";
-import { CAP, colourSlots, projectLevels, projectYears, ribbons, stations, stitches, type MapView3D } from "./map3d";
+import { CAP, projectLevels, projectYears, ribbons, stitches, type MapView3D } from "./map3d";
 import { SHAPES, shapeImage } from "./mapShapes";
 import { cleanText, projectCoords, sideVar } from "./overlaps";
 import { useColorScheme } from "./useColorScheme";
-import { LINE_TOKENS, useThemeColors } from "./useThemeColors";
+import { useThemeColors } from "./useThemeColors";
 
 const STYLE_URLS = {
   light: "https://tiles.openfreemap.org/styles/positron",
@@ -71,11 +71,8 @@ const HEIGHT_STOPS: [number, number][] = [
 const height = (share: unknown) => ["interpolate", ["linear"], ["zoom"], ...HEIGHT_STOPS.flatMap(([z, m]) => [z, ["*", share, m]])];
 // Ribbons and stitches are wider when zoomed out, so they still read at country scale.
 const WIDTH_SPLIT_ZOOM = 6.5;
-const RIBBON_HALF = { coarse: 5_000, fine: 600 };
-const STITCH_HALF = { coarse: 3_600, fine: 420 };
-const STATION_HALF = { coarse: 9_000, fine: 1_100 };
-// Soft light from the upper left, so ribbon sides shade like the tubes on a transit diagram.
-const LIGHT: LightSpecification = { anchor: "map", color: "#ffffff", intensity: 0.34, position: [1.4, 210, 35] };
+const RIBBON_HALF = { coarse: 4_000, fine: 450 };
+const STITCH_HALF = { coarse: 3_000, fine: 320 };
 
 // Mixes two rgba() colours; used for the ghost colour of projects not built yet.
 function mix(a: string, b: string, t: number): string {
@@ -160,7 +157,6 @@ export default function MapView({
     const m = map.current?.getMap();
     if (!m) return;
     for (const t of SHAPE_IDS) if (!m.hasImage(shapeId(t))) m.addImage(shapeId(t), shapeImage(t), { sdf: true, pixelRatio: 2 });
-    m.setLight(LIGHT);
   }, []);
 
   const selected = overlaps.find((o) => o.id === selectedId) ?? null;
@@ -219,20 +215,16 @@ export default function MapView({
   const levels = useMemo(() => projectLevels(projects, utilities, view === "utility" ? "utility" : "time"), [projects, utilities, view]);
   const solids = useMemo(() => {
     if (!is3d) return null;
-    const slots = colourSlots(projects, utilities);
     const props = (p: Project) => ({
       id: p.properties.id,
       utility: p.properties.utility,
-      ci: slots.get(p.properties.utility) ?? 0,
       dimmed: dimmedProjectIds.has(p.properties.id),
     });
     return {
-      stationsCoarse: stations(projects, levels, STATION_HALF.coarse),
-      stationsFine: stations(projects, levels, STATION_HALF.fine),
       ribbonsCoarse: ribbons(projects, levels, RIBBON_HALF.coarse, props),
       ribbonsFine: ribbons(projects, levels, RIBBON_HALF.fine, props),
     };
-  }, [is3d, projects, utilities, levels, dimmedProjectIds]);
+  }, [is3d, projects, levels, dimmedProjectIds]);
   // Only the open pair gets a stitch, so it is cheap to build on every selection.
   const years = useMemo(() => projectYears(projects), [projects]);
   const stitch = useMemo(
@@ -261,18 +253,21 @@ export default function MapView({
     colorByUtility ? ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]] : colors["--muted"],
   ];
   // Ribbons: the open pair's sides in their colours, everything else in the normal project colour, dimmed ones muted.
-  // 3D: each utility in its own line colour, like a transit map. The open pair keeps its colours and everything
-  // else fades to a ghost; so do projects not yet in service at the year bar's year.
-  const ghost = mix(colors["--muted"], colors["--bg"], 0.55);
+  // 3D ribbons keep the Seams colours: the open pair's sides in their colours, everything else in the
+  // project colour. Projects not in service yet at the year bar's year fade to a ghost.
+  const ghost = mix(colors["--muted"], colors["--bg"], 0.6);
   const BUILT = (yearCursor === null ? true : ["<=", ["get", "year"], yearCursor]) as ExpressionSpecification;
-  const lineColor = ["match", ["get", "ci"], ...LINE_TOKENS.flatMap((t, i) => [i, colors[t]]), colors[LINE_TOKENS[0]]];
-  const ribbonColor = ["case", ["any", DIMMED, ["!", BUILT]], ghost, lineColor];
-  const dark = scheme === "dark";
-  const stationCore = ["case", ["all", ["!", hasSelection], BUILT], dark ? colors["--text"] : colors["--surface"], ["==", SIDE, -1], ghost, dark ? colors["--text"] : colors["--surface"]];
-  const stationRing = ["case", ["any", ["all", hasSelection, ["==", SIDE, -1]], ["!", BUILT]], ghost, dark ? colors["--bg"] : colors["--text"]];
+  const ribbonColor = ["case", ["any", ["all", DIMMED, ["==", SIDE, -1]], ["!", BUILT]], ghost, projectColor];
+  // With a pair open, 3D shows only that pair, so it reads cleanly.
+  const ONLY_PAIR = (hasSelection ? ["!=", SIDE, -1] : true) as ExpressionSpecification;
   // Seams fade to almost nothing until both projects exist at the year bar's year.
-  const pairOpacity = (others: number) =>
+  const pairCase = (others: number) =>
     ["case", SELECTED, 1, ...(yearCursor === null ? [] : [[">", ["get", "year"], yearCursor], 0.06]), others];
+  // Zoomed out on the big dataset, only the tier 1 and 2 seams show; the rest fade in from zoom 5 to 6.5.
+  const pairOpacity = (others: number) =>
+    big
+      ? ["interpolate", ["linear"], ["zoom"], 5, ["case", ["<=", ["get", "tier"], 2], pairCase(others), SELECTED, 1, 0], 6.5, pairCase(others)]
+      : pairCase(others);
 
   return (
     <Map
@@ -321,7 +316,12 @@ export default function MapView({
             // In 3D these are grey shadows on the ground under the ribbons.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-color": (is3d ? colors["--muted"] : projectColor) as any,
-            "line-opacity": is3d ? 0.28 : ["case", DIMMED, 0.18, ["==", SIDE, -1], big ? 0.55 : 0.9, 1],
+            // Zoomed out on the big dataset, project lines step back so the seams read first.
+            "line-opacity": (is3d
+              ? ["case", ["==", SIDE, -1], hasSelection ? 0 : 0.22, 0.6]
+              : big
+                ? ["interpolate", ["linear"], ["zoom"], 4, ["case", DIMMED, 0.08, ["==", SIDE, -1], 0.22, 1], 7, ["case", DIMMED, 0.15, ["==", SIDE, -1], 0.6, 1]]
+                : ["case", DIMMED, 0.18, ["==", SIDE, -1], 0.9, 1]) as ExpressionSpecification,
           }}
         />
         <Layer id="project-lines-hit" type="line" paint={{ "line-color": colors["--text"], "line-width": 10, "line-opacity": 0 }} />
@@ -336,7 +336,7 @@ export default function MapView({
             "line-color": colors["--surface"],
             "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", SELECTED, 9, big ? 3 : 6], 7, ["case", SELECTED, 11, 6]],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "line-opacity": pairOpacity(hasSelection ? 0.4 : 0.9) as any,
+            "line-opacity": pairOpacity(hasSelection ? (is3d ? 0.04 : 0.15) : 0.9) as any,
           }}
         />
         <Layer
@@ -349,7 +349,7 @@ export default function MapView({
             // Thinner when zoomed out on the big dataset, so 1,500 seams stay readable.
             "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", SELECTED, 6, big ? 1.5 : 3], 7, ["case", SELECTED, 7, 3]],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "line-opacity": pairOpacity(hasSelection ? 0.35 : 0.9) as any,
+            "line-opacity": pairOpacity(hasSelection ? (is3d ? 0.04 : 0.15) : 0.9) as any,
           }}
         />
         {/* Wide invisible line so thin lines are easy to click. */}
@@ -362,17 +362,11 @@ export default function MapView({
 
       {solids && (
         <>
-          <Source id="stations-coarse" type="geojson" data={solids.stationsCoarse}>
-            <StationLayers id="coarse" source="stations-coarse" maxzoom={WIDTH_SPLIT_ZOOM} core={stationCore} ring={stationRing} />
-          </Source>
-          <Source id="stations-fine" type="geojson" data={solids.stationsFine}>
-            <StationLayers id="fine" source="stations-fine" minzoom={WIDTH_SPLIT_ZOOM} core={stationCore} ring={stationRing} />
-          </Source>
           <Source id="ribbons-coarse" type="geojson" data={solids.ribbonsCoarse}>
-            <SolidLayers id="coarse" source="ribbons-coarse" kind="ribbon" maxzoom={WIDTH_SPLIT_ZOOM} color={ribbonColor} />
+            <SolidLayers id="coarse" source="ribbons-coarse" kind="ribbon" maxzoom={WIDTH_SPLIT_ZOOM} color={ribbonColor} filter={ONLY_PAIR} />
           </Source>
           <Source id="ribbons-fine" type="geojson" data={solids.ribbonsFine}>
-            <SolidLayers id="fine" source="ribbons-fine" kind="ribbon" minzoom={WIDTH_SPLIT_ZOOM} color={ribbonColor} />
+            <SolidLayers id="fine" source="ribbons-fine" kind="ribbon" minzoom={WIDTH_SPLIT_ZOOM} color={ribbonColor} filter={ONLY_PAIR} curtains />
           </Source>
         </>
       )}
@@ -416,7 +410,7 @@ export default function MapView({
             "icon-halo-color": colors["--surface"],
             "icon-halo-width": 1.5,
             // In 3D the ribbons carry the projects; the markers stay on the ground as faint shadows.
-            "icon-opacity": ["case", DIMMED, is3d ? 0.15 : 0.3, ["==", SIDE, -1], is3d ? 0.35 : 1, 1],
+            "icon-opacity": ["case", ["==", SIDE, -1], is3d ? (hasSelection ? 0 : 0.35) : ["case", DIMMED, hasSelection ? 0.12 : 0.3, 1], 1],
           }}
         />
       </Source>
@@ -456,6 +450,8 @@ function SolidLayers({
   minzoom,
   maxzoom,
   color,
+  filter,
+  curtains = false,
 }: {
   id: string;
   source: string;
@@ -463,6 +459,10 @@ function SolidLayers({
   minzoom?: number;
   maxzoom?: number;
   color: unknown;
+  // Which ribbons to draw (all, or only the open pair).
+  filter?: ExpressionSpecification;
+  // Curtains only when zoomed in; at country scale thousands of them turn into a wall of grey.
+  curtains?: boolean;
 }) {
   const zoom = { ...(minzoom !== undefined && { minzoom }), ...(maxzoom !== undefined && { maxzoom }) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -487,11 +487,11 @@ function SolidLayers({
   }
   return (
     <>
-      <Layer
+      {curtains && <Layer
         id={`curtains-${id}`}
         source={source}
         type="fill-extrusion"
-        filter={["get", "line"]}
+        filter={filter ? ["all", ["get", "line"], filter] : ["get", "line"]}
         {...zoom}
         paint={{
           "fill-extrusion-color": c,
@@ -501,11 +501,12 @@ function SolidLayers({
           "fill-extrusion-opacity": 0.14,
           "fill-extrusion-vertical-gradient": true,
         }}
-      />
+      />}
       <Layer
         id={`ribbons-${id}`}
         source={source}
         type="fill-extrusion"
+        {...(filter && { filter })}
         {...zoom}
         paint={{
           "fill-extrusion-color": c,
@@ -514,60 +515,6 @@ function SolidLayers({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           "fill-extrusion-height": height(["get", "top"]) as any,
           "fill-extrusion-opacity": 0.95,
-        }}
-      />
-    </>
-  );
-}
-
-// Station nodes, like the stops on a transit map: a dark ring slab with a lighter, slightly taller core on top.
-function StationLayers({
-  id,
-  source,
-  minzoom,
-  maxzoom,
-  core,
-  ring,
-}: {
-  id: string;
-  source: string;
-  minzoom?: number;
-  maxzoom?: number;
-  core: unknown;
-  ring: unknown;
-}) {
-  const zoom = { ...(minzoom !== undefined && { minzoom }), ...(maxzoom !== undefined && { maxzoom }) };
-  return (
-    <>
-      <Layer
-        id={`station-ring-${id}`}
-        source={source}
-        type="fill-extrusion"
-        {...zoom}
-        paint={{
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-extrusion-color": ring as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-extrusion-base": height(["-", ["get", "top"], CAP * 1.6]) as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-extrusion-height": height(["+", ["get", "top"], CAP * 0.4]) as any,
-          "fill-extrusion-opacity": 1,
-        }}
-      />
-      <Layer
-        id={`station-core-${id}`}
-        source={source}
-        type="fill-extrusion"
-        filter={["has", "top"]}
-        {...zoom}
-        paint={{
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-extrusion-color": core as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-extrusion-base": height(["+", ["get", "top"], CAP * 0.4]) as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-extrusion-height": height(["+", ["get", "top"], CAP * 0.7]) as any,
-          "fill-extrusion-opacity": 1,
         }}
       />
     </>

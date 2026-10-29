@@ -14,6 +14,7 @@ import { mapViewChoice } from "./settings";
 import { timeRange, type MapView3D } from "./map3d";
 import ViewToggle from "./ViewToggle";
 import YearBar from "./YearBar";
+import ScopePicker, { stateName } from "./ScopePicker";
 import LoadingScreen from "./LoadingScreen";
 import type { MapHandle } from "./MapView";
 import type { MascotReaction } from "./Mascot";
@@ -60,6 +61,8 @@ export default function SeamsApp() {
   const announceSwitch = useRef(false);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Scope: one state, or "" for the whole country.
+  const [scope, setScope] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [info, setInfo] = useState<InfoTopic | null>(null);
   const [tilesFailed, setTilesFailed] = useState(false);
@@ -111,6 +114,7 @@ export default function SeamsApp() {
   const changeDataset = useCallback((next: Dataset) => {
     announceSwitch.current = true;
     setSelectedId(null);
+    setScope("");
     setLoad({ status: "loading" });
     datasetChoice.set(next);
   }, []);
@@ -122,7 +126,34 @@ export default function SeamsApp() {
 
   const data = load.status === "ready" ? load.data : null;
   const index = useMemo(() => indexProjects(data?.projects ?? []), [data]);
-  const visible = useMemo(() => (data ? filterOverlaps(data.overlaps, index, filters) : []), [data, index, filters]);
+  // A pair is in scope when either project is in the chosen state.
+  const scopeStates = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const o of data?.overlaps ?? []) {
+      const states = new Set([index.get(o.a)?.properties.state, index.get(o.b)?.properties.state]);
+      for (const st of states) if (st) counts.set(st, (counts.get(st) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((x, y) => x[0].localeCompare(y[0]));
+  }, [data, index]);
+  const inScope = useCallback(
+    (o: { a: string; b: string }) => !scope || index.get(o.a)?.properties.state === scope || index.get(o.b)?.properties.state === scope,
+    [scope, index],
+  );
+  const visible = useMemo(
+    () => (data ? filterOverlaps(data.overlaps, index, filters).filter(inScope) : []),
+    [data, index, filters, inScope],
+  );
+  // The map draws in-scope projects plus the partners they pair with across the state line.
+  const mapProjects = useMemo(() => {
+    if (!data) return [];
+    if (!scope) return data.projects;
+    const keep = new Set(data.projects.filter((p) => p.properties.state === scope).map((p) => p.properties.id));
+    for (const o of visible) {
+      keep.add(o.a);
+      keep.add(o.b);
+    }
+    return data.projects.filter((p) => keep.has(p.properties.id));
+  }, [data, scope, visible]);
   const selected = visible.find((o) => o.id === selectedId) ?? null;
 
   const dimmedProjectIds = useMemo(() => {
@@ -258,7 +289,18 @@ export default function SeamsApp() {
     }
   }, []);
 
+  const changeScope = useCallback(
+    (next: string) => {
+      setScope(next);
+      setSelectedId(null);
+      const n = data ? data.overlaps.filter((o) => !next || index.get(o.a)?.properties.state === next || index.get(o.b)?.properties.state === next).length : 0;
+      mascot.current?.say(next ? `${stateName(next)}: ${n.toLocaleString("en-US")} pairs touch the state.` : "Back to the whole country.", "found");
+    },
+    [data, index],
+  );
+
   const resetDemo = useCallback(() => {
+    setScope("");
     setFilters(EMPTY_FILTERS);
     setSelectedId(null);
     setInfo(null);
@@ -298,7 +340,7 @@ export default function SeamsApp() {
       <section className="relative min-w-0 flex-1" aria-label="Map">
         <MapView
           ref={map}
-          projects={data?.projects ?? []}
+          projects={mapProjects}
           overlaps={visible}
           selectedId={selected?.id ?? null}
           dimmedProjectIds={dimmedProjectIds}
@@ -362,7 +404,10 @@ export default function SeamsApp() {
           />
         </div>
 
-        <div className="pointer-events-none absolute left-3 top-3">
+        <div className="pointer-events-none absolute left-3 top-3 flex flex-col items-start gap-2">
+          {data && scopeStates.length > 2 && (
+            <ScopePicker scope={scope} states={scopeStates} count={visible.length} onChange={changeScope} />
+          )}
           <MapLegend types={projectTypes} utilities={data?.utilities ?? []} illustrative={dataset === "illustrative"} />
         </div>
 

@@ -1,5 +1,6 @@
 // Pure helpers for the overlap list and details. No React here, so they are easy to test.
 import type { LngLat, Overlap, Project } from "@/lib/data";
+import { formatDistance } from "./settings";
 
 export const TIER_LABELS: Record<Overlap["tier"], string> = {
   1: "Touching or crossing: must coordinate outage timing and crossing structures",
@@ -59,8 +60,9 @@ export function accuracy(pair: [Project, Project]): "Exact" | "Centroid" | "Illu
   return pair.every((p) => p.properties.geometry_quality === "osm_line") ? "Exact" : "Centroid";
 }
 
+// Uses the units picked on the settings page (km unless miles were chosen).
 export function formatKm(km: number): string {
-  return `${km.toFixed(2)} km`;
+  return formatDistance(km);
 }
 
 export function formatDays(days: number): string {

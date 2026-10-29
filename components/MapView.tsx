@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import Map, { Layer, Marker, NavigationControl, Source, type MapRef } from "react-map-gl/maplibre";
 import type { LngLat, Overlap, Project, ProjectType } from "@/lib/data";
-import { hexbin } from "./hexbins";
 import { SHAPES, shapeImage } from "./mapShapes";
 import { cleanText, projectCoords, sideVar } from "./overlaps";
 import { useColorScheme } from "./useColorScheme";
@@ -18,13 +17,8 @@ const START_VIEW = { longitude: -96, latitude: 38.5, zoom: 3.4 };
 // Leaves room for the legend (top left) and Arc (bottom left).
 const FIT_PADDING = { top: 90, bottom: 60, left: 140, right: 70 };
 
-// With this many overlaps or more, the zoomed-out map shows hexagons instead of every line.
-const HEX_MIN_OVERLAPS = 150;
-// Hexagon sizes in Web Mercator metres, and the zoom where the map switches from hexagons to pairs.
-const HEX_COARSE = 150_000;
-const HEX_FINE = 60_000;
-const HEX_SPLIT_ZOOM = 4.3;
-const PAIRS_ZOOM = 5.8;
+// With this many projects or more, markers start small when zoomed out so the map stays readable.
+const BIG_DATASET = 150;
 
 const SHAPE_IDS = Object.keys(SHAPES) as ProjectType[];
 const shapeId = (t: ProjectType) => `seams-shape-${t}`;
@@ -52,7 +46,7 @@ interface Props {
   onReady?(): void;
 }
 
-const INTERACTIVE = ["overlap-lines-hit", "project-markers", "project-lines-hit", "hex-fill-coarse", "hex-fill-fine"];
+const INTERACTIVE = ["overlap-lines-hit", "project-markers", "project-lines-hit"];
 
 export default function MapView({
   ref,
@@ -176,11 +170,7 @@ export default function MapView({
     [overlaps, selectedId],
   );
 
-  const useHex = overlaps.length >= HEX_MIN_OVERLAPS;
-  const hexes = useMemo(
-    () => (useHex ? { coarse: hexbin(overlaps, HEX_COARSE), fine: hexbin(overlaps, HEX_FINE) } : null),
-    [overlaps, useHex],
-  );
+  const big = projects.length >= BIG_DATASET;
 
   if (!colors) return <div className="h-full w-full bg-bg" />;
 
@@ -195,15 +185,7 @@ export default function MapView({
     colors["--utility-a"],
     colorByUtility ? ["match", ["get", "utility"], "DESC", colors["--utility-a"], colors["--utility-b"]] : colors["--muted"],
   ];
-  // Pairs fade in as hexagons fade out, so the two never fight for attention.
-  // MapLibre only allows ["zoom"] at the top of an expression, so the fade wraps the per-feature value.
-  const pairOpacity = (others: number) => {
-    const value = (o: number) => ["case", ["get", "selected"], 1, o];
-    return useHex
-      ? ["interpolate", ["linear"], ["zoom"], PAIRS_ZOOM - 0.8, value(hasSelection ? others : 0), PAIRS_ZOOM, value(others)]
-      : value(others);
-  };
-  const hexFade = (full: unknown) => ["interpolate", ["linear"], ["zoom"], PAIRS_ZOOM - 0.8, full, PAIRS_ZOOM, 0];
+  const pairOpacity = (others: number) => ["case", ["get", "selected"], 1, others];
 
   return (
     <Map
@@ -237,33 +219,10 @@ export default function MapView({
         const props = f.properties as Record<string, unknown>;
         if (layer === "overlap-lines-hit") onSelect(props.id as string);
         else if (layer === "project-markers" || layer === "project-lines-hit") onProjectClick(props.id as string);
-        else if (layer.startsWith("hex-fill")) {
-          // Properties come back as JSON strings for arrays.
-          const raw = props.bbox;
-          const [w, s, east, n] = (typeof raw === "string" ? JSON.parse(raw) : raw) as number[];
-          map.current?.fitBounds(
-            [
-              [w, s],
-              [east, n],
-            ],
-            { padding: 80, maxZoom: Math.max(PAIRS_ZOOM + 0.6, e.target.getZoom() + 1.5), duration: 1000 },
-          );
-        }
       }}
       attributionControl={{ compact: false }}
     >
       <NavigationControl position="top-right" showCompass={false} />
-
-      {hexes && (
-        <>
-          <Source id="hex-coarse" type="geojson" data={hexes.coarse}>
-            <HexLayers id="coarse" source="hex-coarse" maxzoom={HEX_SPLIT_ZOOM} colors={colors} fade={hexFade} hidden={hasSelection} />
-          </Source>
-          <Source id="hex-fine" type="geojson" data={hexes.fine}>
-            <HexLayers id="fine" source="hex-fine" minzoom={HEX_SPLIT_ZOOM} colors={colors} fade={hexFade} hidden={hasSelection} />
-          </Source>
-        </>
-      )}
 
       <Source id="project-lines" type="geojson" data={projectFeatures.lines}>
         <Layer
@@ -274,7 +233,7 @@ export default function MapView({
             "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 7, 2.5, 10, 3.5],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-color": projectColor as any,
-            "line-opacity": ["case", ["get", "dimmed"], 0.18, ["==", ["get", "side"], -1], useHex ? 0.55 : 0.9, 1],
+            "line-opacity": ["case", ["get", "dimmed"], 0.18, ["==", ["get", "side"], -1], big ? 0.55 : 0.9, 1],
           }}
         />
         <Layer id="project-lines-hit" type="line" paint={{ "line-color": colors["--text"], "line-width": 10, "line-opacity": 0 }} />
@@ -287,7 +246,7 @@ export default function MapView({
           layout={{ "line-cap": "round" }}
           paint={{
             "line-color": colors["--surface"],
-            "line-width": ["case", ["get", "selected"], 11, 6],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "selected"], 9, big ? 3 : 6], 7, ["case", ["get", "selected"], 11, 6]],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-opacity": pairOpacity(hasSelection ? 0.4 : 0.9) as any,
           }}
@@ -299,7 +258,8 @@ export default function MapView({
           paint={{
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-color": tierColor as any,
-            "line-width": ["case", ["get", "selected"], 7, 3],
+            // Thinner when zoomed out on the big dataset, so 1,500 seams stay readable.
+            "line-width": ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "selected"], 6, big ? 1.5 : 3], 7, ["case", ["get", "selected"], 7, 3]],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-opacity": pairOpacity(hasSelection ? 0.35 : 0.9) as any,
           }}
@@ -308,7 +268,6 @@ export default function MapView({
         <Layer
           id="overlap-lines-hit"
           type="line"
-          minzoom={useHex ? PAIRS_ZOOM - 0.4 : 0}
           paint={{ "line-color": colors["--text"], "line-width": 16, "line-opacity": 0 }}
         />
       </Source>
@@ -325,11 +284,11 @@ export default function MapView({
               ["linear"],
               ["zoom"],
               3,
-              ["case", ["==", ["get", "side"], -1], useHex ? 0.32 : 0.9, 1],
+              ["case", ["==", ["get", "side"], -1], big ? 0.32 : 0.9, 1],
               7,
-              ["case", ["==", ["get", "side"], -1], useHex ? 0.6 : 0.9, 1.1],
+              ["case", ["==", ["get", "side"], -1], big ? 0.6 : 0.9, 1.1],
               10,
-              ["case", ["==", ["get", "side"], -1], useHex ? 0.75 : 1, 1.2],
+              ["case", ["==", ["get", "side"], -1], big ? 0.75 : 1, 1.2],
             ],
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
@@ -368,58 +327,6 @@ export default function MapView({
             );
           })}
     </Map>
-  );
-}
-
-// Hexagons shade by how many overlaps fall inside: one hue, darker means more. The edge takes the most
-// severe tier inside, so a hexagon with a touching pair stands out.
-function HexLayers({
-  id,
-  source,
-  minzoom,
-  maxzoom,
-  colors,
-  fade,
-  hidden,
-}: {
-  id: string;
-  // Layers inside a wrapper component do not get the source from <Source>, so pass it in.
-  source: string;
-  minzoom?: number;
-  maxzoom?: number;
-  colors: NonNullable<ReturnType<typeof useThemeColors>>;
-  fade(full: unknown): unknown;
-  hidden: boolean;
-}) {
-  const zoom = { ...(minzoom !== undefined && { minzoom }), ...(maxzoom !== undefined && { maxzoom }) };
-  return (
-    <>
-      <Layer
-        id={`hex-fill-${id}`}
-        source={source}
-        type="fill"
-        {...zoom}
-        layout={{ visibility: hidden ? "none" : "visible" }}
-        paint={{
-          "fill-color": colors["--accent"],
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "fill-opacity": fade(["interpolate", ["linear"], ["get", "share"], 0, 0.14, 1, 0.72]) as any,
-        }}
-      />
-      <Layer
-        id={`hex-edge-${id}`}
-        source={source}
-        type="line"
-        {...zoom}
-        layout={{ visibility: hidden ? "none" : "visible" }}
-        paint={{
-          "line-color": ["match", ["get", "tier"], 1, colors["--tier-1"], 2, colors["--tier-2"], colors["--surface"]],
-          "line-width": ["match", ["get", "tier"], 1, 2, 2, 1.5, 1],
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          "line-opacity": fade(0.9) as any,
-        }}
-      />
-    </>
   );
 }
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
-import ArcAccessoryPicker from "./ArcAccessoryPicker";
-import ArcColorPicker from "./ArcColorPicker";
+import Link from "next/link";
 import Mascot, { type MascotGesture, type MascotHandle, type MascotReaction } from "./Mascot";
+import { prefersReducedMotion } from "./settings";
 
 export interface ArcCornerHandle extends MascotHandle {
   // Show a speech bubble, optionally with a reaction.
@@ -125,11 +125,15 @@ export default function ArcCorner({ ref, tips, hidden = false }: Props) {
       >
         <Mascot ref={mascot} size={SIZE} onState={onState} onGesture={onGesture} />
       </button>
-      {/* Dress Arc up: any colour, and something to wear. */}
-      <div className="absolute bottom-1 left-[92px] flex items-center gap-2">
-        <ArcColorPicker disabled={hidden} />
-        <ArcAccessoryPicker disabled={hidden} />
-      </div>
+      {/* Colour and accessories live on the settings page now. */}
+      <Link
+        href="/settings#arc"
+        tabIndex={hidden ? -1 : undefined}
+        className="absolute bottom-1 left-[92px] flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-muted shadow-sm hover:text-text"
+      >
+        <span className="h-2.5 w-2.5 rounded-full bg-arc" aria-hidden />
+        Customize Arc
+      </Link>
     </div>
   );
 }
@@ -137,7 +141,7 @@ export default function ArcCorner({ ref, tips, hidden = false }: Props) {
 // Types the line out a few letters at a time. Screen readers get the full text from the live region instead.
 function Typed({ text }: { text: string }) {
   // The bubble is keyed per line, so this starts fresh for every new line.
-  const [shown, setShown] = useState(() => (matchMedia("(prefers-reduced-motion: reduce)").matches ? text.length : 0));
+  const [shown, setShown] = useState(() => (prefersReducedMotion() ? text.length : 0));
   useEffect(() => {
     // Driven by elapsed time, so a busy frame (the map flying) skips letters instead of slowing down.
     const start = performance.now();

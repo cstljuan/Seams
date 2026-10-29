@@ -60,8 +60,8 @@ function How() {
       </p>
       <ol className="list-decimal space-y-2 pl-5">
         <li>
-          The map opens on every planned project in the dataset. Zoomed out, shaded hexagons show where overlaps
-          cluster; zoom in to see each project and pair.
+          The map opens on every planned project in the dataset, with a coloured seam line between each nearby
+          pair. Zoom in or click a row to see a pair up close.
         </li>
         <li>The right panel ranks overlapping pairs by tier (distance), then by schedule.</li>
         <li>Narrow the list with place search, an in-service date range, or “Time overlaps only”.</li>

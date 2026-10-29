@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { loadData } from "@/lib/data";
 import { DEFAULT_DATASET, datasetChoice, type Dataset } from "@/lib/dataset";
@@ -45,6 +46,7 @@ const TIER_LINES: Record<1 | 2 | 3 | 4, string> = {
 
 
 export default function SeamsApp() {
+  const router = useRouter();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const dataset = (useSyncExternalStore(datasetChoice.subscribe, datasetChoice.get, () => null) ?? DEFAULT_DATASET) as Dataset;
   const loadToken = useRef(0);
@@ -368,6 +370,7 @@ export default function SeamsApp() {
             { label: "How it works", onSelect: () => setInfo("how") },
             { label: "Data and methodology", onSelect: () => setInfo("data") },
             { label: "Reset demo", onSelect: resetDemo },
+            { label: "Settings", onSelect: () => router.push("/settings") },
           ]}
           dataset={dataset}
           onDatasetChange={changeDataset}

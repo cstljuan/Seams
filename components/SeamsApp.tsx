@@ -1,25 +1,21 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadData, type SeamsData } from "@/lib/data";
-import AppMenu from "./AppMenu";
-import FilterRow from "./FilterRow";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { loadData } from "@/lib/data";
+import { DEFAULT_DATASET, datasetChoice, type Dataset } from "@/lib/dataset";
 import InfoDrawer, { type InfoTopic } from "./InfoDrawer";
 import { ChevronIcon } from "./icons";
-import LocationSearch from "./LocationSearch";
 import MapLegend from "./MapLegend";
 import ArcCorner, { type ArcCornerHandle } from "./ArcCorner";
+import SidebarPanel, { type LoadState } from "./Sidebar";
 import LoadingScreen from "./LoadingScreen";
 import type { MapHandle } from "./MapView";
 import type { MascotReaction } from "./Mascot";
-import OverlapList from "./OverlapList";
-import ThemeToggle from "./ThemeToggle";
 import {
   EMPTY_FILTERS,
   filterOverlaps,
   formatKm,
-  hasFilters,
   inRange,
   indexProjects,
   overlapBounds,
@@ -47,10 +43,13 @@ const TIER_LINES: Record<1 | 2 | 3 | 4, string> = {
   4: "Close enough to share crews and equipment.",
 };
 
-type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: SeamsData };
 
 export default function SeamsApp() {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
+  const dataset = (useSyncExternalStore(datasetChoice.subscribe, datasetChoice.get, () => null) ?? DEFAULT_DATASET) as Dataset;
+  const loadToken = useRef(0);
+  // Set when the user switches datasets, so Arc says what changed once the new data is in.
+  const announceSwitch = useRef(false);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -70,22 +69,43 @@ export default function SeamsApp() {
   }, []);
 
   // Load data. Arc thinks while it loads, then gives a short happy nod.
+  // A newer load (say, after a dataset switch) wins over an older one still in flight.
   const fetchData = useCallback(() => {
+    const token = ++loadToken.current;
     void play("thinking");
-    loadData()
+    loadData(dataset)
       .then((data) => {
+        if (token !== loadToken.current) return;
         setLoad({ status: "ready", data });
         void play(data.overlaps.length ? "happy" : "confused");
+        if (announceSwitch.current) {
+          announceSwitch.current = false;
+          const n = data.overlaps.length.toLocaleString("en-US");
+          mascot.current?.say(
+            dataset === "illustrative"
+              ? `Illustrative data: ${n} made-up pairs on real towns. Good for exploring, not real plans.`
+              : `Sperry sample: the ${n} real pairs from the GridLock data.`,
+            "happy",
+          );
+        }
       })
       .catch((err: unknown) => {
+        if (token !== loadToken.current) return;
         setLoad({ status: "error", message: err instanceof Error ? err.message : String(err) });
         mascot.current?.say("I couldn't reach the data. Try again on the right.", "error");
       });
-  }, [play]);
+  }, [play, dataset]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const changeDataset = useCallback((next: Dataset) => {
+    announceSwitch.current = true;
+    setSelectedId(null);
+    setLoad({ status: "loading" });
+    datasetChoice.set(next);
+  }, []);
 
   const retry = useCallback(() => {
     setLoad({ status: "loading" });
@@ -118,7 +138,7 @@ export default function SeamsApp() {
     if (overlapCount === 0) return;
     setTimeout(
       () =>
-        mascot.current?.say(`Hi, I'm Arc. I found ${overlapCount} spots where GPC and DESC plans meet. Click a row to fly there, or click me for tips.`, "wink"),
+        mascot.current?.say(`Hi, I'm Arc. I found ${overlapCount.toLocaleString("en-US")} spots where two utilities' plans meet. Click a row to fly there, or click me for tips.`, "wink"),
       250,
     );
   }, [overlapCount]);
@@ -130,10 +150,10 @@ export default function SeamsApp() {
     const closest = Math.min(...data.overlaps.map((o) => o.distance_km));
     const timed = data.overlaps.filter((o) => o.time_overlap).length;
     const tips = [
-      `${n} pairs of GPC and DESC projects are within 40 km. The closest are about ${formatKm(closest)} apart.`,
+      `${n.toLocaleString("en-US")} pairs of projects from different utilities are within 40 km. The closest are about ${formatKm(closest)} apart.`,
       "Click a row or a line on the map and I'll fly you to that pair.",
       timed
-        ? `${timed} of the ${n} pairs also go into service within a year of each other. Try “Time overlaps only”.`
+        ? `${timed.toLocaleString("en-US")} of the ${n.toLocaleString("en-US")} pairs also line up in time. Try “Time overlaps only”.`
         : "No pair goes into service within a year of the other yet, so the timing is still open.",
       "Drag me around. I always snap back.",
       "Search a city up top to jump the map there.",
@@ -273,6 +293,7 @@ export default function SeamsApp() {
           overlaps={visible}
           selectedId={selected?.id ?? null}
           dimmedProjectIds={dimmedProjectIds}
+          colorByUtility={(data?.utilities.length ?? 0) <= 2}
           onSelect={select}
           onProjectClick={onProjectClick}
           onTileError={() => setTilesFailed(true)}
@@ -312,10 +333,10 @@ export default function SeamsApp() {
           </button>
         </div>
 
-        <InfoDrawer topic={info} onClose={() => setInfo(null)} />
+        <InfoDrawer topic={info} dataset={dataset} onClose={() => setInfo(null)} />
 
         <div className="pointer-events-none absolute left-3 top-3">
-          <MapLegend types={projectTypes} />
+          <MapLegend types={projectTypes} utilities={data?.utilities ?? []} illustrative={dataset === "illustrative"} />
         </div>
 
         <ArcCorner ref={mascot} tips={arcTips} hidden={booting} />
@@ -341,115 +362,29 @@ export default function SeamsApp() {
           sidebarOpen ? "w-[30%] min-w-[360px] max-w-[520px]" : "w-0 min-w-0 border-l-0"
         }`}
       >
-        <div className="flex min-w-[360px] flex-col gap-3 border-b border-line p-4">
-          <header className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <h1 className="m-0">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/logo-full-light.svg" alt="Seams" className="h-8 w-auto dark:hidden" />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/logo-full-dark.svg" alt="Seams" className="hidden h-8 w-auto dark:block" />
-              </h1>
-              <span className="text-xs leading-tight text-muted">Where planned grid projects meet</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <ThemeToggle />
-              <AppMenu
-                items={[
-                  { label: "Explore overlaps", onSelect: () => { setInfo(null); setSidebarOpen(true); } },
-                  { label: "How it works", onSelect: () => setInfo("how") },
-                  { label: "Data and methodology", onSelect: () => setInfo("data") },
-                  { label: "Reset demo", onSelect: resetDemo },
-                ]}
-              />
-            </div>
-          </header>
-          <LocationSearch onPlace={onPlace} onBusy={onSearchBusy} />
-          <FilterRow filters={filters} onChange={changeFilters} />
-        </div>
-
-        <div className="flex min-h-0 min-w-[360px] flex-1 flex-col">
-          <div className="flex items-center justify-between px-4 pb-2 pt-3">
-            <h2 className="text-sm font-semibold">
-              Ranked overlaps
-              {data && (
-                <span className="ml-1.5 font-mono font-normal text-muted" aria-live="polite">
-                  {visible.length === data.overlaps.length ? visible.length : `${visible.length} of ${data.overlaps.length}`}
-                </span>
-              )}
-            </h2>
-            {hasFilters(filters) && (
-              <button type="button" onClick={() => changeFilters(EMPTY_FILTERS)} className="text-xs text-accent hover:underline">
-                Clear filters
-              </button>
-            )}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            {load.status === "loading" && <LoadingList />}
-            {load.status === "error" && <ErrorState message={load.message} onRetry={retry} />}
-            {data && visible.length === 0 && (
-              <EmptyState filters={filters} onClear={() => changeFilters(EMPTY_FILTERS)} />
-            )}
-            {data && visible.length > 0 && (
-              <OverlapList overlaps={visible} index={index} selectedId={selected?.id ?? null} onSelect={select} />
-            )}
-          </div>
-        </div>
+        <SidebarPanel
+          menuItems={[
+            { label: "Explore overlaps", onSelect: () => { setInfo(null); setSidebarOpen(true); } },
+            { label: "How it works", onSelect: () => setInfo("how") },
+            { label: "Data and methodology", onSelect: () => setInfo("data") },
+            { label: "Reset demo", onSelect: resetDemo },
+          ]}
+          dataset={dataset}
+          onDatasetChange={changeDataset}
+          datasetDisabled={load.status === "loading" && !booting}
+          onPlace={onPlace}
+          onSearchBusy={onSearchBusy}
+          filters={filters}
+          onFiltersChange={changeFilters}
+          load={load}
+          visible={visible}
+          index={index}
+          selectedId={selected?.id ?? null}
+          onSelect={select}
+          onRetry={retry}
+        />
       </aside>
     </main>
   );
 }
 
-function LoadingList() {
-  return (
-    <div role="status" aria-live="polite">
-      <span className="sr-only">Loading overlaps…</span>
-      <ul className="flex flex-col gap-2" aria-hidden>
-        {[0, 1, 2, 3].map((i) => (
-          <li key={i} className="animate-pulse rounded-xl border border-line bg-surface p-3">
-            <div className="h-3 w-1/3 rounded bg-hover" />
-            <div className="mt-2 h-2.5 w-4/5 rounded bg-hover" />
-            <div className="mt-1.5 h-2.5 w-3/5 rounded bg-hover" />
-          </li>
-        ))}
-      </ul>
-      <p className="mt-3 text-center text-xs text-muted">Loading overlaps…</p>
-    </div>
-  );
-}
-
-// Say which filter hid everything, so the fix is obvious.
-function emptyReason(f: Filters): string {
-  const parts: string[] = [];
-  if (f.start || f.end) parts.push(`no pair has both in-service dates ${f.start ? `after ${f.start}` : ""}${f.start && f.end ? " and " : ""}${f.end ? `before ${f.end}` : ""}`);
-  if (f.timeOnly) parts.push("“Time overlaps only” keeps just pairs with in-service dates within a year");
-  return parts.length ? `${parts.join("; ")}.` : "The data has no overlaps yet.";
-}
-
-function EmptyState({ filters, onClear }: { filters: Filters; onClear(): void }) {
-  const filtered = hasFilters(filters);
-  return (
-    <div className="rounded-xl border border-dashed border-line px-4 py-8 text-center" role="status">
-      <p className="text-sm font-medium">No overlaps match</p>
-      <p className="mt-1 text-xs text-muted">{filtered ? emptyReason(filters) : "The data has no overlaps yet."}</p>
-      {filtered && (
-        <button type="button" onClick={onClear} className="mt-3 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs hover:bg-hover">
-          Clear filters
-        </button>
-      )}
-    </div>
-  );
-}
-
-function ErrorState({ message, onRetry }: { message: string; onRetry(): void }) {
-  return (
-    <div className="rounded-xl border border-tier-1 bg-surface px-4 py-6 text-center" role="alert">
-      <p className="text-sm font-medium">Could not load the data</p>
-      <p className="mt-1 break-words font-mono text-xs text-muted">{message}</p>
-      <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs hover:bg-hover">
-        Try again
-      </button>
-    </div>
-  );
-}

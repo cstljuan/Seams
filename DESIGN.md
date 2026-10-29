@@ -69,6 +69,14 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - 60 s without input: `sleep`; any input wakes it
 - If the Arc script fails or takes over 8 s, Arc is hidden and the app keeps working.
 
+## Datasets and the big map (2026-10-29)
+- Two datasets, picked at the top of the panel: **Illustrative** (default, about 800 made-up projects from 23 utilities on real US towns) and **Sperry sample** (the 10 real projects). Saved in the browser as `seams.dataset` (`lib/dataset.ts`).
+- The illustrative dataset is always labelled: "Illustrative data" chip under the toggle, a line in the legend, the Data and methodology drawer, and coordination briefs. Accuracy shows "Illustrative".
+- Projects draw on the GPU (MapLibre symbol layers with SDF shapes from `components/mapShapes.ts`), same shapes as before. With two utilities they keep the DESC/GPC colours. With many, every project is `--muted` and only the two sides of the open pair get `--utility-b` (first) and `--utility-a` (second), matching the list.
+- With 150 or more overlaps, the zoomed-out map shows hexagons (`components/hexbins.ts`): one hue (`--accent`), darker means more pairs, a red or orange edge means a tier 1 or 2 pair is inside. Click a hexagon to zoom in. Pairs fade in from zoom 5 to 5.8 as hexagons fade out. These encode data, they are not decoration.
+- The list shows 100 rows at a time with "Show more".
+- The panel content lives in `components/Sidebar.tsx`, so the desktop sidebar and a phone sheet can both render it.
+
 ## Rules
 - Never show a cost as one exact number; show a range.
 - Always label approximate distances ("Centroid" accuracy).

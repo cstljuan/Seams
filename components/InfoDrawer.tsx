@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { Dataset } from "@/lib/dataset";
 import { CloseIcon } from "./icons";
 import { TIER_LABELS } from "./overlaps";
 
 export type InfoTopic = "how" | "data";
 
 // Slides over the map from the left. Escape or the close button returns focus to where it was.
-export default function InfoDrawer({ topic, onClose }: { topic: InfoTopic | null; onClose(): void }) {
+export default function InfoDrawer({ topic, dataset, onClose }: { topic: InfoTopic | null; dataset: Dataset; onClose(): void }) {
   const panel = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
 
@@ -44,7 +45,7 @@ export default function InfoDrawer({ topic, onClose }: { topic: InfoTopic | null
         </button>
       </header>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 text-sm leading-relaxed">
-        {topic === "how" ? <How /> : <Data />}
+        {topic === "how" ? <How /> : <Data dataset={dataset} />}
       </div>
     </div>
   );
@@ -58,7 +59,10 @@ function How() {
         outages and permits collide.
       </p>
       <ol className="list-decimal space-y-2 pl-5">
-        <li>The map opens on the sample project region. Markers are coloured by utility: DESC and Georgia Power (GPC).</li>
+        <li>
+          The map opens on every planned project in the dataset. Zoomed out, shaded hexagons show where overlaps
+          cluster; zoom in to see each project and pair.
+        </li>
         <li>The right panel ranks overlapping pairs by tier (distance), then by schedule.</li>
         <li>Narrow the list with place search, an in-service date range, or “Time overlaps only”.</li>
         <li>Open a pair to see distance, schedule, location accuracy, a cost range and sources.</li>
@@ -74,14 +78,23 @@ function How() {
   );
 }
 
-function Data() {
+function Data({ dataset }: { dataset: Dataset }) {
   return (
     <>
-      <Section title="Projects">
-        10 planned transmission projects (5 DESC, 5 GPC) from the Sperry Tech GridLock sample package
-        (Projects_Overlaps.xlsx). Locations are substation points or midpoints between two substations, not surveyed
-        line routes, so every distance is approximate.
-      </Section>
+      {dataset === "illustrative" ? (
+        <Section title="Projects: illustrative dataset">
+          About 800 made-up projects from 23 utilities, placed on real US towns with routes drawn between them. 21 of
+          the utilities are invented. DESC and Georgia Power appear with their 10 real projects from the Sperry Tech
+          GridLock sample. The made-up projects are not real utility plans; they show how Seams behaves at national
+          scale. Switch to the Sperry sample at the top of the panel to see real data only.
+        </Section>
+      ) : (
+        <Section title="Projects">
+          10 planned transmission projects (5 DESC, 5 GPC) from the Sperry Tech GridLock sample package
+          (Projects_Overlaps.xlsx). Locations are substation points or midpoints between two substations, not surveyed
+          line routes, so every distance is approximate.
+        </Section>
+      )}
       <Section title="Overlap tiers">
         <ul className="space-y-1">
           {([1, 2, 3, 4] as const).map((t) => (
@@ -96,8 +109,9 @@ function Data() {
         <p className="mt-1 text-muted">Tiers come from the Sperry challenge and use closest distance between the two projects.</p>
       </Section>
       <Section title="Schedule match">
-        A pair is a schedule match when the two in-service dates are within 365 days. The data has no construction
-        start dates, so this does not prove the builds happen at the same time.
+        When both projects have a construction start date, a pair is a schedule match when the build windows overlap.
+        Otherwise it is a match when the two in-service dates are within 365 days, which does not prove the builds
+        happen at the same time. The Sperry sample has no start dates; the illustrative dataset does.
       </Section>
       <Section title="Cost of not coordinating">
         A Monte Carlo range (P10, P50, P90) built from public benchmarks: MISO MTEP transmission cost guides, ATRI

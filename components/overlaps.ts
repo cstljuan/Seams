@@ -1,5 +1,5 @@
 // Pure helpers for the overlap list and details. No React here, so they are easy to test.
-import type { LngLat, Overlap, Project, Utility } from "@/lib/data";
+import type { LngLat, Overlap, Project } from "@/lib/data";
 
 export const TIER_LABELS: Record<Overlap["tier"], string> = {
   1: "Touching or crossing: must coordinate outage timing and crossing structures",
@@ -33,12 +33,12 @@ export function indexProjects(projects: Project[]): ProjectIndex {
   return new Map(projects.map((p) => [p.properties.id, p]));
 }
 
-// The two sides of an overlap, GPC first to match the "GPC -> DESC" row label.
+// The two sides of an overlap, ordered by utility code from Z to A, so the sample reads "GPC -> DESC" as before.
 export function sides(o: Overlap, index: ProjectIndex): [Project, Project] | null {
   const a = index.get(o.a);
   const b = index.get(o.b);
   if (!a || !b) return null;
-  return a.properties.utility === "GPC" ? [a, b] : [b, a];
+  return a.properties.utility > b.properties.utility ? [a, b] : [b, a];
 }
 
 // An overlap stays when at least one of its projects is in service inside the date range.
@@ -53,7 +53,9 @@ export function filterOverlaps(overlaps: Overlap[], index: ProjectIndex, f: Filt
     .sort((x, y) => x.rank - y.rank);
 }
 
-export function accuracy(pair: [Project, Project]): "Exact" | "Centroid" {
+// "Illustrative" when either side is made up for the illustrative dataset.
+export function accuracy(pair: [Project, Project]): "Exact" | "Centroid" | "Illustrative" {
+  if (pair.some((p) => p.properties.geometry_quality === "generated")) return "Illustrative";
   return pair.every((p) => p.properties.geometry_quality === "osm_line") ? "Exact" : "Centroid";
 }
 
@@ -94,8 +96,9 @@ export function cleanText(s: string): string {
     .replace(/&#39;/g, "'");
 }
 
-export function utilityVar(u: Utility): string {
-  return u === "DESC" ? "var(--utility-a)" : "var(--utility-b)";
+// Colour for each side of a pair: the first side (GPC in the sample) is --utility-b, the second --utility-a.
+export function sideVar(side: 0 | 1): string {
+  return side === 0 ? "var(--utility-b)" : "var(--utility-a)";
 }
 
 export function projectCoords(p: Project): LngLat[] {

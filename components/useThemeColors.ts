@@ -6,7 +6,7 @@ import { useColorScheme } from "./useColorScheme";
 // Map layers need real colour strings, not CSS variables.
 // Read the theme tokens and turn each into rgba() via a 1px canvas,
 // so any CSS colour format in theme.css works. Browser only (the map is not server rendered).
-const TOKENS = ["--tier-1", "--tier-2", "--tier-3", "--tier-4", "--utility-a", "--utility-b", "--surface", "--text"] as const;
+const TOKENS = ["--tier-1", "--tier-2", "--tier-3", "--tier-4", "--utility-a", "--utility-b", "--surface", "--text", "--muted", "--accent"] as const;
 export type ThemeColors = Record<(typeof TOKENS)[number], string>;
 
 function toRgba(ctx: CanvasRenderingContext2D, value: string): string {

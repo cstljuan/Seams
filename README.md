@@ -53,7 +53,8 @@ Install Node.js, run `npm install`, then `npm run dev` and open the local URL. `
 - Sperry Tech GridLock sample package
 - Utility filings
 - OpenStreetMap
+- An illustrative dataset (the default view): about 800 made-up projects from 23 utilities, placed on real US towns. Only DESC and Georgia Power, with their 10 real sample projects, are real; the other 21 utilities are invented. The app labels it "Illustrative data" everywhere. Switch to "Sperry sample" for real data only. Rebuild it with `npm run generate:illustrative`.
 
 ## Assumptions and limits
 
-The included points and six overlap examples are challenge sample data. Distances are approximate unless both projects have real line geometry from OpenStreetMap. Cost figures are model estimates and are always shown as ranges. The app reads from MongoDB Atlas and falls back to the local JSON files.
+The Sperry sample points and six overlap examples are challenge sample data. Everything else in the illustrative dataset is made up to show Seams at national scale. Distances are approximate unless both projects have real line geometry from OpenStreetMap. Cost figures are model estimates and are always shown as ranges. The app reads from MongoDB Atlas and falls back to the local JSON files.

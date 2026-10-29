@@ -18,7 +18,7 @@ import ScopePicker, { stateName } from "./ScopePicker";
 import BottomSheet, { PEEK_PX, type SheetStop } from "./BottomSheet";
 import { useIsPhone } from "./useIsPhone";
 import LoadingScreen from "./LoadingScreen";
-import type { MapHandle } from "./MapView";
+import type { MapHandle, MapViewState } from "./MapView";
 import type { MascotReaction } from "./Mascot";
 import {
   EMPTY_FILTERS,
@@ -39,6 +39,7 @@ const MapView = dynamic(() => import("./MapView"), {
 });
 
 const IDLE_SLEEP_MS = 60_000;
+const LIST_FOLLOW_ZOOM = 5.5;
 const THINK_MS = 450;
 // If the base map is slow, stop waiting for it after the data is in. The list works without it.
 const MAP_WAIT_MS = 4_000;
@@ -147,6 +148,20 @@ export default function SeamsApp() {
     () => (data ? filterOverlaps(data.overlaps, index, filters).filter(inScope) : []),
     [data, index, filters, inScope],
   );
+  // Zoomed in past this, the list shows only pairs whose seam is on screen, so it matches the map.
+  const [mapView, setMapView] = useState<MapViewState | null>(null);
+  const listed = useMemo(() => {
+    if (!mapView || mapView.zoom < LIST_FOLLOW_ZOOM) return visible;
+    const [w, s, e, n] = mapView.bounds;
+    return visible.filter((o) => {
+      if (o.id === selectedId) return true;
+      const lng = (o.closest_points[0][0] + o.closest_points[1][0]) / 2;
+      const lat = (o.closest_points[0][1] + o.closest_points[1][1]) / 2;
+      return lng >= w && lng <= e && lat >= s && lat <= n;
+    });
+  }, [visible, mapView, selectedId]);
+  const listFollows = !!mapView && mapView.zoom >= LIST_FOLLOW_ZOOM;
+
   // The map draws in-scope projects plus the partners they pair with across the state line.
   const mapProjects = useMemo(() => {
     if (!data) return [];
@@ -361,7 +376,8 @@ export default function SeamsApp() {
       filters={filters}
       onFiltersChange={changeFilters}
       load={load}
-      visible={visible}
+      visible={listed}
+      inView={listFollows ? { onShowAll: () => map.current?.overview() } : undefined}
       index={index}
       selectedId={selected?.id ?? null}
       onSelect={select}
@@ -393,6 +409,7 @@ export default function SeamsApp() {
           onProjectClick={onProjectClick}
           onTileError={() => setTilesFailed(true)}
           onReady={() => setMapReady(true)}
+          onViewChange={setMapView}
         />
 
         {load.status === "loading" && (
@@ -498,7 +515,7 @@ export default function SeamsApp() {
               ) : (
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">
-                    {data ? `${visible.length.toLocaleString("en-US")} overlaps` : "Loading overlaps…"}
+                    {data ? `${listed.length.toLocaleString("en-US")} ${listFollows ? "in view" : "overlaps"}` : "Loading overlaps…"}
                     {scope && <span className="font-normal text-muted"> in {stateName(scope)}</span>}
                   </p>
                   <p className="text-xs text-muted">{dataset === "illustrative" ? "Illustrative data. Drag up for the list." : "Sperry sample. Drag up for the list."}</p>

@@ -93,6 +93,8 @@ Keep calls to `play(name)` so the art can be updated without touching the app.
 - **Scope** picker above the legend: United States or one state. A pair is in scope when either project is in the state; the map shows in-scope projects plus their partners and flies there.
 - **Focus on open**: with a pair open, 3D draws only that pair; 2D fades everything else to 15%.
 - **Zoomed out on the big dataset**: only tier 1 and 2 seams show until zoom 5 to 6.5; project lines sit back at 22%.
+- **Focus while zooming** (Juan, 2026-10-29): from zoom 7.5 with no pair open, the 16 seams nearest the middle of the screen (within a third of the shorter side) light up with their projects in `--utility-a`; everything else fades to 10%. Done with MapLibre feature state on camera stop, so moving never rebuilds data.
+- **List follows the map**: from zoom 5.5 the list shows only pairs whose seam is on screen ("In view N of M", with Show all). The open pair always stays in the list.
 - Geometry and heights: `components/map3d.ts`. Heights scale with zoom (450 km of full height at zoom 3 down to 300 m at zoom 14).
 
 ## Phones (2026-10-29)
